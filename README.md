@@ -213,7 +213,7 @@ For our analysis we will need to access **imputed** and **only genotyped data**.
 
 For the purposes of this project and in order to maximize the sample size for heritability estimation, we merge both phases and were imputed together with [TOPMed] (https://imputation.biodatacatalyst.nhlbi.nih.gov/#!).
 
-Here we are going to create a symlink [(like a type of shortcut in Linux)] (https://www.reddit.com/r/linux/comments/1a3xxq/someone_please_explain_symlinks_to_me_i_know/?rdt=51432) to where the actual imputed data sits, you can implement a similar approach to ensure that the downstream path architecture holds. 
+Here we are going to create a symlink [like a type of shortcut in Linux] (https://www.reddit.com/r/linux/comments/1a3xxq/someone_please_explain_symlinks_to_me_i_know/?rdt=51432) to where the actual imputed data sits, you can implement a similar approach to ensure that the downstream path architecture holds. 
 
 <details>
 <summary>terminal example: creating the symlink to the imputed data and checking that it resolves</summary>
