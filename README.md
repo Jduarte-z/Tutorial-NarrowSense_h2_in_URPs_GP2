@@ -165,7 +165,6 @@ An **important disclaimer**: this tutorial was thought so you can run the analys
 
 I highly encourage you to follow the same naming and folder structure patterns described here so we can maximize the reproducibility of the pipeline. Additionally, here we use a bunch of different programs and environments that require specific versions. How to download them and use them will be covered as soon as we need them. Just consider that in order to avoid conflict between possible versions of the programs that you may have, stick with the naming convention and paths that we use here, in that way, everything could be contained in a specific folder dedicated to this analysis, and (hopefully) we don't mess up with your current program's set up. 
 
-Another 
 
 # First wave of analysis: Covariate-adjusted Linkage Disequilibrium score regression (cov-LDSC)
 
