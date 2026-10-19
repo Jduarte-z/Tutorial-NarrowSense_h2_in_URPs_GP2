@@ -2652,7 +2652,7 @@ Four numbers in that log deserve your attention:
 |---|---|
 | `After merging with reference panel LD, N SNPs remain` | This should be close to the size of your reference panel. If it collapses to a few thousand, your summary statistics and your LD scores are not using the same variant IDs, and everything below it is meaningless. |
 | `Intercept` | Should sit near 1. Substantially above 1 points to residual confounding that the ten PCs did not absorb, which in an admixed cohort is exactly the failure mode we are watching for. |
-| `Total Observed scale h2` | The estimate on the 0/1 scale. Not comparable across studies, since it depends on your case-control ratio — do not report this one on its own. |
+| `Total Observed scale h2` | The estimate on the 0/1 scale. Not comparable across studies, since it depends on your case-control ratio — do not report this one on its own. Of note: in order to get this estimate you should run the command line without the --samp-prev and --pop-prev. Just keep in mind that we are not interested in reporting this specific metric since our phenotype is binary |
 | `Total Liability scale h2` | **This is the number we want**, together with its standard error in parentheses. Reported per prevalence. |
 
 Finally, please share all three `.log` files with us. Together with the diagnostics from Steps 4 and 6, they are what lets us tell apart a genuinely low heritability from an underpowered GWAS.
