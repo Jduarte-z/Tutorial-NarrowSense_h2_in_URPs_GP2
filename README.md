@@ -620,7 +620,7 @@ Once your environment is active, lets move to run PCA first
 
 ### Step 4.a run the PCA pipeline 
 
-A NOTE HERE: make sure that the sample.block.size parameters is smaller than the number of samples in your cohort (see script below).
+A NOTE HERE: make sure that the sample.block.size parameter is smaller than the number of samples in your cohort (see script below).
 
 <details>
 <summary><strong>View script: <code>pcs_pipeline_h2_project.r</code></strong></summary>
@@ -3429,7 +3429,7 @@ Unlike the PCA pipeline in Step 4, this script has no command-line interface. Op
 
 For 7.1K samples and ~8M variants, the total computational time took me around ~4 hours at 12 threads and 94G of memory. 
 
-A NOTE HERE: make sure that the sample.block.size parameters is smaller than the number of samples in your cohort (see script below).
+A NOTE HERE: make sure that the sample.block.size parameter is smaller than the number of samples in your cohort (see script below).
 
 <details>
 <summary><strong>View script: <code>grm_with_pcrelate.r</code></strong></summary>
