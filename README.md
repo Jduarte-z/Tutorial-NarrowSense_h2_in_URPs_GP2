@@ -620,6 +620,8 @@ Once your environment is active, lets move to run PCA first
 
 ### Step 4.a run the PCA pipeline 
 
+A NOTE HERE: make sure that the sample.block.size parameters is smaller than the number of samples in your cohort (see script below).
+
 <details>
 <summary><strong>View script: <code>pcs_pipeline_h2_project.r</code></strong></summary>
 
@@ -756,7 +758,7 @@ pcair_r2_covar_merged_tsv <- out_path(arg("pcair_r2_covar_merged_tsv", "pcair_r2
 n_cores           <- arg("n_cores",           1)
 n_pcs             <- arg("n_pcs",             10)
 snp_block_size    <- arg("snp_block_size",    10000)
-sample_block_size <- arg("sample_block_size", 1500)
+sample_block_size <- arg("sample_block_size", 1500) #here it is important that this parameters is smaller than your actual sample size
 
 # Output filename patterns (sprintf style)
 # PC-pair scatter plots: %02d, %02d = the two PC numbers on the axes
@@ -3427,6 +3429,8 @@ Unlike the PCA pipeline in Step 4, this script has no command-line interface. Op
 
 For 7.1K samples and ~8M variants, the total computational time took me around ~4 hours at 12 threads and 94G of memory. 
 
+A NOTE HERE: make sure that the sample.block.size parameters is smaller than the number of samples in your cohort (see script below).
+
 <details>
 <summary><strong>View script: <code>grm_with_pcrelate.r</code></strong></summary>
 
@@ -3563,7 +3567,7 @@ if (!force_pcrel && file.exists(pcrel_rds)) {
     training.set       = unrel_ids,     # all included samples are mutually unrelated
     maf.thresh         = maf_min,       # on individual-specific AF, not cohort MAF
     maf.bound.method   = "filter",
-    sample.block.size  = 5000,
+    sample.block.size  = 5000,          #important here that this is smaller than the your sample size
     small.samp.correct = TRUE,
     BPPARAM            = BiocParallel::MulticoreParam(n_cores),
     verbose            = TRUE
@@ -3728,7 +3732,7 @@ cat("finished:", format(Sys.time()), "\n")
 log_close()
 ```
 
-</details>
+</details> 
 
 Here an example on how to run it interactively in the terminal
 
