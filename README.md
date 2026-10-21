@@ -960,7 +960,7 @@ if (file.exists(king_mat_rds)) {
   message("Computing KING matrix -> ", king_mat_rds)
   gds_king <- snpgdsOpen(king_gds)
 
-  king <- snpgdsIBDKING(gds_king, sample.id=NULL, snp.id=NULL, autosome.only=TRUE,type=c("KING-robust"), family.id=NULL, verbose=TRUE)
+  king <- snpgdsIBDKING(gds_king, sample.id=NULL, snp.id=NULL, autosome.only=TRUE,type=c("KING-robust"), family.id=NULL, num.thread = n_cores, verbose=TRUE)
 
   KINGmat <- king$kinship
   rownames(KINGmat) <- colnames(KINGmat) <- king$sample.id
