@@ -572,6 +572,8 @@ sample5ID	2	2	72
 
 Once you made sure that this is the shape of your covariate file, we can move onto the next step that involves PCA and such. Hence, we need to make sure our covariate file is at hand in the project structure.
 
+The above covariate file is just a simple example. You can include more covariates if needed, for example. Including different countries or genotyping batches could be necessarily depending on the structure of your cohort. In downstream scripts there is the possibility of adding more covariates so they are preserved across the analysis. 
+
 Here an example:
 ```
 (base) [duarte@node1 working_directory_h2]$ mkdir pca_and_such
