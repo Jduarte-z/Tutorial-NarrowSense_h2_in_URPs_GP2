@@ -250,9 +250,516 @@ Here we have confirmed that we have the shortcut active for further analysis.
 
 Only genotyped data is important for the computation of principal components. 
 
-For this step we are assuming that your genotype array data has been already called and QCed. The basic parameters expected and more relevant information about how to perform QC in admixed populations with your whole cohort together is described elsewhere (https://github.com/MataLabCCF/GWASQC). Since heritability estimations are more stable at bigger sample sizes, having the genetic data of your cohort altogether will be ideal. If your genotyped data was QCed with other frameworks that split individuals by ancestry (like [genotools](https://github.com/dvitale199/GenoTools) and imputed by ancestry, we can discuss and brainstorm how to proceed. 
+For this step we are assuming that your genotype array data has been already called and QCed. The basic parameters expected and more relevant information about how to perform QC in admixed populations with your whole cohort together is described bellow. Since heritability estimations are more stable at bigger sample sizes, having the genetic data of your cohort altogether will be ideal. If your genotyped data was QCed with other frameworks that split individuals by ancestry (like [genotools](https://github.com/dvitale199/GenoTools) and imputed by ancestry, we can discuss and brainstorm how to proceed. 
 
+### Step 2.a (example on array data QC, imputation prep and imputation with TOPMed)
+
+<details>
+<summary><b>Genotype QC and Pre-Imputation Preparation (NeuroBooster Array → TOPMed)</b></summary>
+
+This tutorial walks through the commands used to quality-control genotype array data from the NeuroBooster array (NBA) and prepare it for imputation on the TOPMed Imputation Server. Each step shows the command run in the terminal, what it does, and what the working directory looked like afterwards.
+
+> **Note:** The file names below come from a real project, with the original data name changed. Replace `NB_NoLift`, `phase2_covar4QC.tsv`, `phase2_newQC` and `qc_new` with your own names, and `/path_to_genotype_data` and `/path_to_fasta` with your own paths.
+
+More details regarding the genotype calling are described [here](https://github.com/MataLabCCF/LARGE-PD_Phase2_Paper) 
+
+---
+
+#### Overview
+
+```
+NB_NoLift (pfile from the NeuroBooster genotype calling pipeline)
+   │
+   │  remove known problematic NBA variants, keep standard chromosomes
+   ▼
+NB_NoLift_updated
+   │
+   │  GWASQC pipeline
+   │     covariate check → sex-check → A/T-C/G removal → variant missingness
+   │     → sample missingness → duplicates → heterozygosity → HWE (controls) → HWE (all)
+   ▼
+qc_new/phase2_newQC_HWECase
+   │
+   │  split by chromosome → VCF (hg38, chr-prefixed) → bcftools +fixref → index
+   ▼
+fixedRef_chr{1..22}.vcf.gz
+   │
+   │  upload
+   ▼
+TOPMed Imputation Server
+```
+
+---
+
+#### Prerequisites
+
+#### Software
+
+This repo describes how to download plink softwares, if you need assitance with python or bcftools don't hessitate to reach out. Here are just outlined for the purposes of showing how we did QC and imputation on our end. 
+
+| Tool | Version used | Used for | Notes |
+|---|---|---|---|
+| PLINK 2 | v2.0.0-a.7.3LM 64-bit Intel (8 Aug 2026)` | Filtering, format conversion, most QC steps | PLINK 2 is still in development. Use a recent build: the HWE step uses newer `--hwe` options. |
+| PLINK 1.9 | `v1.9.0-b.7.11 64-bit (19 Aug 2025)` | Sex check (`--check-sex`) | Called by the QC pipeline as `plink`. |
+| Python 3 | `3.12.2` | Runs the GWASQC pipeline | Needs `numpy`. |
+| bcftools | `1.16` | Strand/reference fixing and indexing | Needs the `+fixref` plugin. If `bcftools +fixref` can't find it, point `BCFTOOLS_PLUGINS` at the bcftools `plugins/` folder. |
+| git | any | Cloning the QC pipeline | |
+
+All commands assume `plink2`, `plink`, `python` and `bcftools` are on your `PATH`. If they aren't, use full paths, including in the `--plink2`, `--plink1` and `--python` arguments in Step 4.
+
+#### Input files
+
+| File | Description |
+|---|---|
+| `NB_NoLift.pgen/.pvar/.psam` | PLINK 2 fileset produced by the NeuroBooster genotype calling pipeline |
+| `phase2_covar4QC.tsv` | Covariate file with sample ID, sex and case/control status |
+| `Homo_sapiens_assembly38.fasta` | hg38 reference genome, used in Step 5. It can be downloaded [here](https://drive.google.com/drive/folders/1CWrWHNC0Hft94Mol_EpTF0Tswo1jaWpU?usp=sharing). Keep its `.fai` index in the same folder. |
+
+---
+
+#### Set up the working directory
+
+Go to the folder that holds your genotype data. In this example, the covariate file needed by the QC pipeline is kept in the same folder.
+
+```bash
+cd /path_to_genotype_data
+ls
+```
+
+Output:
+
+```
+NB_NoLift.pgen
+NB_NoLift.pvar
+NB_NoLift.psam
+NB_NoLift.log
+phase2_covar4QC.tsv
+```
+
+Clone the QC pipeline repository into the same folder:
+
+```bash
+git clone https://github.com/Jduarte-z/GWASQC_updated_public
+ls
+```
+
+Output:
+
+```
+GWASQC_updated_public/
+NB_NoLift.pgen
+NB_NoLift.pvar
+NB_NoLift.psam
+NB_NoLift.log
+phase2_covar4QC.tsv
+```
+
+---
+
+#### Inspect the input files
+
+Before running anything, check that your files look like these examples.
+
+##### Sample file (`.psam`)
+
+```bash
+head -n3 NB_NoLift.psam
+```
+
+Output:
+
+```
+#IID	SEX
+IID1	1
+IID2	2
+```
+
+One row per sample, with sex coded `1` = male and `2` = female. The QC pipeline takes sex from the covariate file (below) rather than from this column, but the sample IDs must match.
+
+##### Variant file (`.pvar`)
+
+```bash
+head -n6 NB_NoLift.pvar
+```
+
+Output:
+
+```
+#CHROM	POS	ID	REF	ALT
+1	49554	1:49554-G-A	A	G
+1	115746	JHU_1.115745	G	A
+1	598858	JHU_1.534237	A	.
+1	629488	chr1:629488:T:C	G	A
+1	630053	rs9701055	G	A
+```
+
+The variant IDs come in several formats (`chr:pos-ref-alt`, `JHU_...`, `chr1:pos:ref:alt`, rsIDs). That's normal for array data. In Step 5 every ID is rewritten to the same `chr:pos:ref:alt` format before imputation.
+
+##### Covariate file
+
+```bash
+head -n3 phase2_covar4QC.tsv
+```
+
+Output:
+
+```
+ID	SEX	STATUS
+IID1	2	1
+IID2	1	2
+```
+
+The QC pipeline needs at least these three columns:
+
+- **ID**: must match the IDs in the `.psam` file.
+- **SEX**: `1` = male, `2` = female.
+- **STATUS**: `1` = control, `2` = case.
+
+Samples with missing or invalid SEX or STATUS are **removed automatically** at the start of the QC pipeline. The [repository README](https://github.com/Jduarte-z/GWASQC_updated_public) lists the other codings and header names it accepts.
+
+##### NBA problematic-variant list
+
+```bash
+head -n3 GWASQC_updated_public/ultimate_list_snps2remove_nba_qc.txt
+```
+
+Output:
+
+```
+22:24301858_CNV_GSTT2B
+22:24301858_CNV_GSTT2B_Ilmndup1
+22:24301858_CNV_GSTT2B_Ilmndup2
+```
+
+This list ships with the repository. It holds NeuroBooster array variant IDs known to be problematic, such as CNV probes and Illumina duplicate probes, which are removed in the next step.
+
+---
+
+#### Remove problematic NeuroBooster variants
+
+```bash
+plink2 --pfile NB_NoLift \
+    --exclude GWASQC_updated_public/ultimate_list_snps2remove_nba_qc.txt \
+    --chr 1-26 \
+    --make-pgen --out NB_NoLift_updated
+```
+
+| Flag | What it does |
+|---|---|
+| `--pfile NB_NoLift` | Reads `NB_NoLift.pgen/.pvar/.psam` |
+| `--exclude <file>` | Removes every variant whose ID is in the list |
+| `--chr 1-27` | Keeps variants on standard chromosome codes and drops ones with no chromosome assigned (chromosome `0`) |
+| `--make-pgen --out NB_NoLift_updated` | Writes the filtered data as a new pfile |
+
+```bash
+ls
+```
+
+Output:
+
+```
+GWASQC_updated_public/
+NB_NoLift.pgen
+NB_NoLift.pvar
+NB_NoLift.psam
+NB_NoLift.log
+NB_NoLift_updated.pgen
+NB_NoLift_updated.pvar
+NB_NoLift_updated.psam
+NB_NoLift_updated.log
+phase2_covar4QC.tsv
+```
+
+> **Tip:** Open `NB_NoLift_updated.log` to see how many variants were removed.
+
+---
+
+#### Create the `steps.txt` file
+
+The QC pipeline reads a `steps.txt` file that lists the QC steps to run, **in the order they should run**, and their thresholds. If you don't provide one, the pipeline runs every step with default values.
+
+For this project the file looks like this. Unlike the pipeline's default, it **does not run the relationship (kinship) control step**.
+
+```
+sex-check
+ATCG
+geno	0.05
+mind	0.05
+duplicate
+heterozygosity	4
+HWE control	1e-6
+HWE case	1e-10
+```
+
+> ⚠️ **The step name and its value must be separated by a TAB, not spaces.** The pipeline splits each line on tabs, and some step names contain a space (`HWE control`). Copying the block above from a web page or PDF can turn tabs into spaces, so the safest way to create the file is with `printf`:
+
+```bash
+printf "sex-check\nATCG\ngeno\t0.05\nmind\t0.05\nduplicate\nheterozygosity\t4\nHWE control\t1e-6\nHWE case\t1e-10\n" > steps.txt
+```
+
+You can also create it by hand with `nano steps.txt`, making sure you press TAB between each name and value. To check that the tabs are there, run `cat -t steps.txt`. Tabs show up as `^I`:
+
+```bash
+cat -t steps.txt
+```
+
+Output:
+
+```
+sex-check
+ATCG
+geno^I0.05
+mind^I0.05
+duplicate
+heterozygosity^I4
+HWE control^I1e-6
+HWE case^I1e-10
+```
+
+#### What each step does
+
+| Line in `steps.txt` | Removes | How |
+|---|---|---|
+| *(always runs first)* | Samples | Removes samples with missing or invalid SEX or STATUS in the covariate file. |
+| `sex-check` | Samples | Compares declared sex with sex inferred from X-chromosome genotypes using PLINK 1.9 `--check-sex`. Thresholds are relaxed for admixed populations: a declared female is flagged only if F > 0.5, and a declared male if F < 0.8. |
+| `ATCG` | Variants | Removes all A/T and C/G (strand-ambiguous) SNPs. Their strand can't be resolved from the alleles alone, and the array reports some variants on the + strand and others on the − strand. |
+| `geno 0.05` | Variants | Removes variants missing in more than 5% of samples (`plink2 --geno 0.05`). |
+| `mind 0.05` | Samples | Removes samples missing more than 5% of genotypes (`plink2 --mind 0.05`). High missingness can mean poor DNA quality. |
+| `duplicate` | Variants | Finds variants with the same chromosome, position and alleles, and keeps the copy with the least missing data. |
+| `heterozygosity 4` | Samples | Removes samples whose heterozygosity rate is more than **4 SD** from the mean (pipeline default: 3). Extreme values can point to contamination (too high) or inbreeding (too low). This uses the raw heterozygosity rate rather than the F statistic, which over-flags admixed samples. |
+| `HWE control 1e-6` | Variants | Runs a Hardy-Weinberg equilibrium test **in controls only** and removes the failing variants from **all** samples. |
+| `HWE case 1e-10` | Variants | Runs a second, stricter HWE test on **all remaining samples**. Its output (`*_HWECase`) is the final QC'ed dataset. |
+
+Both HWE steps run `plink2 --hwe <p> 0.001 midp keep-fewhet`:
+
+- `0.001` scales the threshold with sample size.
+- `midp` applies the mid-p correction.
+- `keep-fewhet` keeps variants that fail only because they have *too few* heterozygotes. That pattern is expected in admixed or structured populations and isn't necessarily a genotyping error.
+
+See the [PLINK 2 `--hwe` documentation](https://www.cog-genomics.org/plink/2.0/filter#hwe) for details.
+
+```bash
+ls
+```
+
+Output:
+
+```
+GWASQC_updated_public/
+NB_NoLift.pgen
+NB_NoLift.pvar
+NB_NoLift.psam
+NB_NoLift.log
+NB_NoLift_updated.pgen
+NB_NoLift_updated.pvar
+NB_NoLift_updated.psam
+NB_NoLift_updated.log
+phase2_covar4QC.tsv
+steps.txt
+```
+
+---
+
+#### Run the QC pipeline
+
+```bash
+python GWASQC_updated_public/main.py --inputFile NB_NoLift_updated \
+    --outputName phase2_newQC \
+    --outputFolder qc_new \
+    --info phase2_covar4QC.tsv \
+    --steps steps.txt \
+    --plink2 plink2 \
+    --plink1 plink \
+    --python python 2>&1 | tee run_gwasqc.log
+```
+
+| Argument | What it does |
+|---|---|
+| `--inputFile NB_NoLift_updated` | Input fileset from Step 2, with no file extension |
+| `--outputName phase2_newQC` | Prefix for all output files |
+| `--outputFolder qc_new` | Folder for the outputs. It is created if it doesn't exist. |
+| `--info phase2_covar4QC.tsv` | Covariate file (ID, SEX, STATUS) |
+| `--steps steps.txt` | QC steps and thresholds from Step 3 |
+| `--plink2` / `--plink1` / `--python` | Commands or paths for PLINK 2, PLINK 1.9 and Python |
+| `2>&1 \| tee run_gwasqc.log` | Shows the output on screen and also saves it, including errors, to `run_gwasqc.log` |
+
+```bash
+ls
+```
+
+Output:
+
+```
+GWASQC_updated_public/
+qc_new/
+NB_NoLift.pgen
+NB_NoLift.pvar
+NB_NoLift.psam
+NB_NoLift.log
+NB_NoLift_updated.pgen
+NB_NoLift_updated.pvar
+NB_NoLift_updated.psam
+NB_NoLift_updated.log
+phase2_covar4QC.tsv
+run_gwasqc.log
+steps.txt
+```
+
+##### What's inside `qc_new/`
+
+Each QC step writes its own pfile named `phase2_newQC_<step>`, so you can follow how the data changes through the pipeline. The most useful files are:
+
+| File | Contents |
+|---|---|
+| `QC.log` | Every command run, plus the number of samples and variants (per chromosome) left after each step. **Check this file first.** |
+| `phase2_newQC_HWECase.pgen/.pvar/.psam` | Output of the last step: the QC'ed data used in Step 5 |
+| `FinalData/phase2_newQC_QCed.pgen/.pvar/.psam` | A copy of the final QC'ed data (the same as `HWECase` here, because HWE case is the last step, with the caveat that if the relationship control was activated it will show the unrelated samples. However, for this project we sent to imputation all the people together and remove related individuals afterwards. Downstream in the tutorial there is a step specifically dedicated to this) |
+| `phase2_newQC_sexProblem.txt`, `phase2_newQC_heterozygosity.txt`, `phase2_newQC_listATCG.txt`, … | Lists of the samples or variants removed by each step |
+
+
+---
+
+#### Split by chromosome and fix the reference alleles
+
+TOPMed expects one bgzipped VCF per chromosome on build hg38 (GRCh38), with `chr`-prefixed chromosome names and REF alleles that match the reference genome. Array data often has REF and ALT swapped or reported on the opposite strand, so each chromosome is checked against the hg38 FASTA with `bcftools +fixref`.
+
+Move into the QC output folder:
+
+```bash
+cd qc_new
+```
+
+The input for this step is the pfile that ends in `HWECase`, in this case `phase2_newQC_HWECase`.
+
+#### Convert to VCF and fix the reference, one chromosome at a time
+
+```bash
+for chr in {1..22}; do
+    plink2 --pfile phase2_newQC_HWECase \
+        --set-all-var-ids @:#:\$r:\$a \
+        --new-id-max-allele-len 100 \
+        --recode vcf-iid bgz \
+        --output-chr chrMT \
+        --out qced_vcf_chr${chr} \
+        --chr ${chr}
+
+    bcftools +fixref qced_vcf_chr${chr}.vcf.gz -Oz -o fixedRef_chr${chr}.vcf.gz -- -f /path_to_fasta/Homo_sapiens_assembly38.fasta -m flip -d
+done 2>&1 | tee log
+```
+
+**PLINK 2 part:**
+
+| Flag | What it does |
+|---|---|
+| `--set-all-var-ids @:#:\$r:\$a` | Renames every variant to `chr:pos:ref:alt` (e.g. `1:49554:A:G`), replacing the mixed ID formats seen in Step 1. The `\$` stops the shell from treating `$r` and `$a` as shell variables. |
+| `--new-id-max-allele-len 100` | Raises the maximum allele length allowed in the new IDs, so long indels don't cause an error |
+| `--recode vcf-iid bgz` | Exports a bgzip-compressed VCF (`.vcf.gz`) that uses only the IID as the sample name |
+| `--output-chr chrMT` | Writes chromosome names with a `chr` prefix (`chr1`, `chr2`, …), as hg38 and TOPMed expect |
+| `--chr ${chr}` | Exports only the current chromosome |
+
+**bcftools part:**
+
+| Option | What it does |
+|---|---|
+| `+fixref qced_vcf_chr${chr}.vcf.gz` | Checks each variant's REF allele against the reference FASTA |
+| `-Oz -o fixedRef_chr${chr}.vcf.gz` | Writes the fixed output as a bgzipped VCF |
+| `-f <fasta>` | hg38 reference genome. Its chromosome names (`chr1`, …) must match the VCF. |
+| `-m flip` | Swaps REF/ALT or flips the strand when needed so REF matches the reference |
+| `-d` | Discards variants that can't be matched to the reference |
+
+`2>&1 | tee log` saves the full output of the loop to a file named `log`. For each chromosome, `+fixref` prints how many sites were already correct, flipped, swapped or removed. Check these numbers. Most sites should already match, and a large share of flipped or removed sites can point to a build or strand problem.
+
+#### Index the fixed VCFs
+
+```bash
+for chr in {1..22}; do
+    bcftools index fixedRef_chr${chr}.vcf.gz -f
+done
+```
+
+This creates a `.csi` index next to each file. `-f` overwrites any existing index.
+
+##### Optional: check the result
+
+Running `+fixref` again **without** `-m` only reports statistics and doesn't change anything. After the fix, nearly every site should be counted as matching the reference:
+
+```bash
+bcftools +fixref fixedRef_chr1.vcf.gz -- -f /path_to_fasta/Homo_sapiens_assembly38.fasta
+```
+
+##### Files created in `qc_new/`
+
+```
+qced_vcf_chr1.vcf.gz ... qced_vcf_chr22.vcf.gz        # before reference fixing
+fixedRef_chr1.vcf.gz ... fixedRef_chr22.vcf.gz        # ready for imputation
+fixedRef_chr1.vcf.gz.csi ... fixedRef_chr22.vcf.gz.csi
+log                                                   # plink2 + fixref output
+```
+
+The **`fixedRef_chr*.vcf.gz`** files are the ones to upload to TOPMed.
+
+---
+
+#### Submit to the TOPMed Imputation Server
+
+Upload `fixedRef_chr1.vcf.gz` … `fixedRef_chr22.vcf.gz` to the [TOPMed Imputation Server](https://imputation.biodatacatalyst.nhlbi.nih.gov/).
+
+For this project we recommend the following settings:
+<img width="2230" height="2006" alt="topmedpic_mine" src="https://github.com/user-attachments/assets/38a7755a-c99c-40a9-aefe-ebccaede809e" />
+
+---
+
+#### Final checklist before uploading
+
+- [ ] `QC.log` reviewed: the number of samples and variants removed at each step looks reasonable.
+- [ ] Removed-sample lists (sex check, heterozygosity, missingness) checked, and any surprising removals investigated.
+- [ ] `log` from Step 5 reviewed: few sites flipped or removed by `+fixref` on each chromosome.
+- [ ] 22 files `fixedRef_chr1.vcf.gz` … `fixedRef_chr22.vcf.gz`, each with a `.csi` index.
+- [ ] Chromosome names have the `chr` prefix:
+  ```bash
+  bcftools query -f '%CHROM\n' fixedRef_chr1.vcf.gz | uniq
+  # chr1
+  ```
+- [ ] The sample count matches the QC'ed data:
+  ```bash
+  bcftools query -l fixedRef_chr1.vcf.gz | wc -l
+  grep -vc '^#' phase2_newQC_HWECase.psam
+  ```
+- [ ] Build selected on TOPMed is **GRCh38/hg38**, matching the FASTA used in Step 5.
+
+---
+
+#### Summary of files
+
+| Step | Input | Output |
+|---|---|---|
+| 2. Remove NBA problem variants | `NB_NoLift` | `NB_NoLift_updated` |
+| 3. Define QC steps | | `steps.txt` |
+| 4. QC pipeline | `NB_NoLift_updated`, `phase2_covar4QC.tsv`, `steps.txt` | `qc_new/phase2_newQC_HWECase` (also `qc_new/FinalData/phase2_newQC_QCed`) |
+| 5a. Split + convert + fix reference | `qc_new/phase2_newQC_HWECase`, hg38 FASTA | `qc_new/fixedRef_chr{1..22}.vcf.gz` |
+| 5b. Index | `fixedRef_chr*.vcf.gz` | `fixedRef_chr*.vcf.gz.csi` |
+| 6. Imputation | `fixedRef_chr*.vcf.gz` | Imputed data from TOPMed |
+
+</details>
+
+
+### Step 2.b - after imputation work
+
+After you send your files to TOPMed and they finish the imputation job, they will send you an email with the curl link to download them to your terminal and the password to unzip them. Here an example on how to proceed:
+
+```
+PASSWORD='yourPassword'
+
+for f in chr_*.zip; do
+    echo "Unzipping $f ..."
+    unzip -P "$PASSWORD" "$f"
+done
+
+bcftools index chr*.dose.vcf.gz
+```
 Your genotype data could be in plink or vcf format, here I'm giving an example on how extract the "only typed" variants form the imputed data (in this case from topmed), but if you already have the genotyped data in a different set of files it is also fine, just create the symlink in the "genotype" folder to the genetic data like we did with the imputed. 
+
+A clarification note: here is important to extract the genotyped variants that come from TOPMed since they do further internal QC to remove problematic genotyped variants that our previous QC didn't catch. 
 
 Example for submitting 22 different jobs if you are working in a cluster. Here I'm using a python script to submit the 22 jobs for me, but also a slurm array would work, I just personally find it more useful to submit individual jobs for debugging purposes. 
 
