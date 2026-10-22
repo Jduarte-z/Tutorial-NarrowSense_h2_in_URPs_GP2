@@ -208,11 +208,11 @@ Notice the (base) only means that my default conda environment is activated, we 
 
 ## Step 1. Get your imputed data 
 
-For our analysis we will need to access **imputed** and **only genotyped data**. The example here is working with .vcf files that were returned from TOPMed Imputation Server, that we used for imputing the data from [LARGE-PD](https://large-pd.org/), used in the papers from [LARGE-PD phase 1](https://pubmed.ncbi.nlm.nih.gov/34227697/) and [LARGE-PD phase 2] (https://pubmed.ncbi.nlm.nih.gov/40791673/).
+For our analysis we will need to access **imputed** and **only genotyped data**. The example here is working with .vcf files that were returned from TOPMed Imputation Server, that we used for imputing the data from [LARGE-PD](https://large-pd.org/), used in the papers from [LARGE-PD phase 1](https://pubmed.ncbi.nlm.nih.gov/34227697/) and [LARGE-PD phase 2](https://pubmed.ncbi.nlm.nih.gov/40791673/).
 
-For the purposes of this project and in order to maximize the sample size for heritability estimation, we merge both phases and were imputed together with [TOPMed] (https://imputation.biodatacatalyst.nhlbi.nih.gov/#!).
+For the purposes of this project and in order to maximize the sample size for heritability estimation, we merge both phases and were imputed together with [TOPMed](https://imputation.biodatacatalyst.nhlbi.nih.gov/#!).
 
-Here we are going to create a symlink [like a type of shortcut in Linux] (https://www.reddit.com/r/linux/comments/1a3xxq/someone_please_explain_symlinks_to_me_i_know/?rdt=51432) to where the actual imputed data sits, you can implement a similar approach to ensure that the downstream path architecture holds. 
+Here we are going to create a symlink [like a type of shortcut in Linux](https://www.reddit.com/r/linux/comments/1a3xxq/someone_please_explain_symlinks_to_me_i_know/?rdt=51432) to where the actual imputed data sits, you can implement a similar approach to ensure that the downstream path architecture holds. 
 
 <details>
 <summary>terminal example: creating the symlink to the imputed data and checking that it resolves</summary>
