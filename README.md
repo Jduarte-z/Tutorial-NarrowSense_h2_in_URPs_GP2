@@ -3971,6 +3971,8 @@ n_pcs        <- 10
 n_cores      <- 12                        # set this to what your machine actually has
 maf_min      <- 0.01                      # matches the cov-LDSC LD scores
 pcrel_scale  <- "variant"                 # 'overall' for sensitivity
+sample_block_size <- 5000                 # important here that this is smaller than the your sample size
+snp_block_size   <- 10000                 #here we can reduce it to like 5,000 or 2,000 in order to reduce the peak ram usage
 
 op <- function(...) file.path(h2_out_dir, ...)
 
@@ -4065,7 +4067,7 @@ if (!force_pcrel && file.exists(pcrel_rds)) {
 } else {
   geno_reader <- GdsGenotypeReader(filename = h2_gds)
   geno_data   <- GenotypeData(geno_reader)
-  geno_iter   <- GenotypeBlockIterator(geno_data, snpBlock = 10000)
+  geno_iter   <- GenotypeBlockIterator(geno_data, snpBlock = snp_block_size)
 
   pcrel_h2 <- pcrelate(
     geno_iter,
@@ -4076,7 +4078,7 @@ if (!force_pcrel && file.exists(pcrel_rds)) {
     training.set       = unrel_ids,     # all included samples are mutually unrelated
     maf.thresh         = maf_min,       # on individual-specific AF, not cohort MAF
     maf.bound.method   = "filter",
-    sample.block.size  = 5000,          #important here that this is smaller than the your sample size
+    sample.block.size  = sample_block_size,          #important here that this is smaller than the your sample size
     small.samp.correct = TRUE,
     BPPARAM            = BiocParallel::MulticoreParam(n_cores),
     verbose            = TRUE
