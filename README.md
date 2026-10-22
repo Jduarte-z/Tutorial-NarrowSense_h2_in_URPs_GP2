@@ -1266,8 +1266,8 @@ pcair_r2_covar_merged_tsv <- out_path(arg("pcair_r2_covar_merged_tsv", "pcair_r2
 # Analysis parameters 
 n_cores           <- arg("n_cores",           1)
 n_pcs             <- arg("n_pcs",             10)
-snp_block_size    <- arg("snp_block_size",    10000) #here we can reduce it to like 5,000 or 2,000 in order to reduce the peak ram usage
-sample_block_size <- arg("sample_block_size", 1500) #here it is important that this parameters is smaller than your actual sample size
+snp_block_size    <- arg("snp_block_size",    10000) #here we can reduce it to like 5,000 or 2,000 in order to reduce the peak ram usage. Either change it here hardcoding or in the flag in the command line execution. 
+sample_block_size <- arg("sample_block_size", 1500) #here it is important that this parameters is smaller than your actual sample size. Either change it here hardcoding or in the flag in the command line execution. 
 
 # Output filename patterns (sprintf style)
 # PC-pair scatter plots: %02d, %02d = the two PC numbers on the axes
