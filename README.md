@@ -5858,3 +5858,12 @@ cat("wrote", out_file, "\n")
 
 ```
 </details>
+
+# Generative Artificial Intelligence (AI) use disclosure
+
+
+The command line structure, markdown formatting and scripts used in this repository were crafted with help of generative AI models in order to increase readability and reproducibility. 
+
+
+All the outputs from generative AI models that made it through to this public repository were carefully evaluated by Juan Felipe Duarte-Zambrano. Taking full accountability for the scientific conceptual interpretation, possible errors and inconsistencies with the code.
+
