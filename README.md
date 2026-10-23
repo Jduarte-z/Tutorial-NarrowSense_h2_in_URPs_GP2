@@ -5862,8 +5862,7 @@ cat("wrote", out_file, "\n")
 # Generative Artificial Intelligence (AI) use disclosure
 
 
-The command line structure, markdown formatting and scripts used in this repository were crafted with help of generative AI models in order to increase readability and reproducibility. 
+Generative AI models were used to help write the wrapper scripts, SLURM job submission scripts, command-line structure, and Markdown documentation in this repository, in order to improve readability and documentation. The study design, method and parameter choices, and scientific interpretation are the author's own.
 
-
-All the outputs from generative AI models that made it through to this public repository were carefully evaluated by Juan Felipe Duarte-Zambrano. Taking full accountability for the scientific conceptual interpretation, possible errors and inconsistencies with the code.
+All AI-generated content included in this public repository was reviewed, edited, and tested by Juan Felipe Duarte-Zambrano, who takes full accountability for the scientific interpretation and for any errors or inconsistencies in the code.
 
