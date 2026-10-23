@@ -747,7 +747,7 @@ For this project we recommend the following settings:
 
 ### Step 2.b - after imputation work
 
-After you send your files to TOPMed and they finish the imputation job, they will send you an email with the curl link to download them to your terminal and the password to unzip them. Here an example on how to proceed:
+After you send your files to TOPMed and they finish the imputation job, they will send you an email with the curl link to download them to your terminal and the password to unzip them. Here an example on how to proceed (after the download with the curl command is finished):
 
 ```
 PASSWORD='yourPassword'
