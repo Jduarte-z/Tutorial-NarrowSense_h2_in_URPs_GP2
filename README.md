@@ -4,7 +4,7 @@
 
 Important note: assuming hg38!
 
-Some notes and clarifications regarding the amount of compute that we used in our end for one of the most computationally expensive steps (using LARGE-PD data using the Cleveland Clinic HPC cluster) can be found [here](https://drive.google.com/drive/folders/1CWrWHNC0Hft94Mol_EpTF0Tswo1jaWpU?usp=sharing). This could be useful for planning your analysis. 
+Some notes and clarifications regarding the amount of compute that we used in our end for one of the most computationally expensive steps (using LARGE-PD data and the Cleveland Clinic HPC cluster) can be found [here](https://drive.google.com/drive/folders/1CWrWHNC0Hft94Mol_EpTF0Tswo1jaWpU?usp=sharing). This could be useful for planning your analysis. 
 
 ---
 
