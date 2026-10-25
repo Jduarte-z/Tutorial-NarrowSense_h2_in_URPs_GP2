@@ -1908,7 +1908,9 @@ Resolving deltas: 100% (47/47), done.
 
 ### Step 4.c format the covariate file for downstream analysis
 
-Different tools have different requirements on the type of covariate file format that the need. However, as we said in step 3, it is fundamental to include the same covariates in every tool that we will run. Hence, the scripts "covariate_settings.r" and covariate_checks.r" are meant to ensure a harmonized handling of covariate files and some sanity checks.
+Different tools have different requirements on the type of covariate file format that they need. However, as we said in step 3, it is fundamental to include the same covariates in every tool that we will run. Hence, the scripts `covariate_settings.r` and `covariate_checks.r` are meant to ensure a harmonized handling of covariate files and some sanity checks.
+
+Both files must sit in `outFolder_pca_andSuch`, next to `pcair_r2_covariates_merged.tsv`, and must be named exactly as shown here.
 
 First, copy and paste as it is the following script (it will be the core of some safety checks that step 4.c and step 10.b need)
 <details>
@@ -1917,11 +1919,11 @@ First, copy and paste as it is the following script (it will be the core of some
 <br>
 
 ```r
-# Covariate checks shared by make_covariate_files.R and the PC-Relate GRM
+# Covariate checks shared by make_covariate_files.r and the PC-Relate GRM
 # script, so both apply exactly the same rules. Base R only.
 #
-# The functions use the variables from covariate_settings.R, so source that
-# file first. Keep this file in the same folder as covariate_settings.R.
+# The functions use the variables from covariate_settings.r, so source that
+# file first. Keep this file in the same folder as covariate_settings.r.
 #
 #   read_covariates(covar_file)
 #       Reads the covariate file with every column as text, so values are
@@ -1968,14 +1970,14 @@ check_covariates <- function(cv, ids, covar_file, problems_file) {
   not_set  <- settings[!vapply(settings, exists, logical(1))]
   if (length(not_set) > 0)
     stop("these settings are not defined: ", paste(not_set, collapse = ", "),
-         ". Source covariate_settings.R first.", call. = FALSE)
+         ". Source covariate_settings.r first.", call. = FALSE)
 
   pc_cols <- paste0("PC", seq_len(n_pcs_covar))
   needed  <- c(sex_col, pheno_col, quant_covars, cat_covars, pc_cols)
 
   twice <- unique(needed[duplicated(needed)])
   if (length(twice) > 0)
-    stop("these columns are listed more than once in covariate_settings.R: ",
+    stop("these columns are listed more than once in covariate_settings.r: ",
          paste(twice, collapse = ", "), call. = FALSE)
 
   cat("\n--- covariate settings ---\n")
@@ -2082,7 +2084,7 @@ check_covariates <- function(cv, ids, covar_file, problems_file) {
 
     if (nrow(per_level) < 2)
       stop(v, " has a single level, so it is constant and cannot be a covariate. ",
-           "Remove it from cat_covars in covariate_settings.R.", call. = FALSE)
+           "Remove it from cat_covars in covariate_settings.r.", call. = FALSE)
 
     sparse <- per_level[per_level$cases > 0 & per_level$controls > 0 &
                         (per_level$cases < min_per_level | per_level$controls < min_per_level), ]
@@ -2107,10 +2109,21 @@ check_covariates <- function(cv, ids, covar_file, problems_file) {
 
   list(cv = cv, is_case = is_case, levels = levels_tables)
 }
+
 ```
 </details>
 
+```
+(base) [duarte@node1 outFolder_pca_andSuch]$ nano covariate_checks.r
+```
+
 Then, we need to modify this script and specify which covariates are needed and the nature of them (which covariate is quantitative, which covariate is categorical). Some datasets will only need SEX and AGE, but other may need additional covariates. So this script is meant to specify and harmonize this. 
+
+Use the column names exactly as they appear in `pcair_r2_covariates_merged.tsv`. This lists them, one per line:
+
+```
+(base) [duarte@node1 outFolder_pca_andSuch]$ head -1 pcair_r2_covariates_merged.tsv | tr '\t' '\n'
+```
 
 <details>
 <summary><strong>View script: <code>covariate_settings.r</code></strong></summary>
@@ -2120,12 +2133,12 @@ Then, we need to modify this script and specify which covariates are needed and 
 ```r
 # Covariate settings, shared by two scripts so the GCTA and LDAK arms always
 # use the same covariates:
-#   make_covariate_files.R    step 4.c, writes the GCTA covariate files
+#   make_covariate_files.r    step 4.c, writes the GCTA covariate files
 #   the PC-Relate GRM script  h2 project, writes pd.ldak.covar for LDAK
 # Both source this file. Edit the covariates here, not in the scripts.
 #
 # Keep this file next to pcair_r2_covariates_merged.tsv, together with
-# covariate_checks.R. Use the column names exactly as they appear in that file.
+# covariate_checks.r. Use the column names exactly as they appear in that file.
 
 
 # Sex and disease status. Each may only hold 1 or 2. Any other value (0, -9,
@@ -2157,12 +2170,23 @@ n_pcs_covar  <- 10
 # Per-level check on the categorical covariates: a warning if a level has fewer
 # cases or controls than this, and a stop if it has none.
 min_per_level <- 10
-
 ```
 </details>
 
+```
+(base) [duarte@node1 outFolder_pca_andSuch]$ nano covariate_settings.r
+```
 
-After you copied covariate_checks.r and made sure covariate_settings.r are in place, you can run run this R script to subset the covariate file to the unrelated pairs identified through NAToRA, and create the different variations needed for the covariate file.
+For example, for a cohort that merges recruitment sites and two genotyping phases, the covariate lines would read:
+
+```r
+quant_covars <- c("AGE")
+cat_covars   <- c("COHORT", "PHASE")
+```
+
+> **Important:** any time you edit `covariate_settings.r`, rerun `make_covariate_files.r` below. The GWAS scripts compare a checksum of the settings file and refuse to run if it changed after step 4.c last ran, even if only a comment was edited.
+
+After you copied `covariate_checks.r` and made sure `covariate_settings.r` is in place, you can run this R script. It removes the related individuals identified through NAToRA, runs the covariate checks on the remaining samples, and creates the different versions of the covariate file that GCTA, LDAK and plink2 need.
 
 
 <details>
@@ -2176,25 +2200,25 @@ After you copied covariate_checks.r and made sure covariate_settings.r are in pl
 # Build the covariate/phenotype files for the unrelated subset.
 #
 # Usage:
-#   Rscript make_covariate_files.R [covariates.tsv] [toRemove.txt] [outdir] [prefix] [settings.R]
+#   Rscript make_covariate_files.r [covariates.tsv] [toRemove.txt] [outdir] [prefix] [settings.r]
 #
 # Defaults:
 #   covariates.tsv = pcair_r2_covariates_merged.tsv
 #   toRemove.txt   = NAToRA_output_pcrel_toRemove.txt
 #   outdir         = .
 #   prefix         = covariate_file_no_related_pairs
-#   settings.R     = covariate_settings.R
+#   settings.r     = covariate_settings.r
 #
 # Which columns are quantitative or categorical, and any additional
-# covariates, are set in covariate_settings.R, not here. That file is shared
+# covariates, are set in covariate_settings.r, not here. That file is shared
 # with the PC-Relate GRM script so the GCTA and LDAK arms use the same
-# covariates. The checks are in covariate_checks.R, which must sit in the same
+# covariates. The checks are in covariate_checks.r, which must sit in the same
 # folder as the settings file.
 #
 # The plink2 GWAS scripts (plinkGWAS.py / plinkGWAS.sh) read two files written
 # here, <prefix>_plink.tsv and <prefix>_plink_covar_names.txt, so they use the
 # same covariates too. Rerun this script after any change to the settings: the
-# GWAS scripts compare a checksum of covariate_settings.R and refuse to run if
+# GWAS scripts compare a checksum of covariate_settings.r and refuse to run if
 # it changed since this script last ran.
 #
 # Everything printed to the screen is also written to <outdir>/<prefix>.log
@@ -2205,8 +2229,8 @@ covar_file    <- if (length(args) >= 1) args[1] else "./pcair_r2_covariates_merg
 remove_file   <- if (length(args) >= 2) args[2] else "./NAToRA_output_pcrel_toRemove.txt"
 outdir        <- if (length(args) >= 3) args[3] else "."
 prefix        <- if (length(args) >= 4) args[4] else "covariate_file_no_related_pairs"
-settings_file <- if (length(args) >= 5) args[5] else "./covariate_settings.R"
-checks_file   <- file.path(dirname(settings_file), "covariate_checks.R")
+settings_file <- if (length(args) >= 5) args[5] else "./covariate_settings.r"
+checks_file   <- file.path(dirname(settings_file), "covariate_checks.r")
 
 if (!dir.exists(outdir)) dir.create(outdir, recursive = TRUE)
 
@@ -2226,7 +2250,7 @@ die <- function(...) {
   stop(..., call. = FALSE)
 }
 
-say("=== make_covariate_files.R ===============================")
+say("=== make_covariate_files.r ===============================")
 say("Run started : ", format(Sys.time(), "%Y-%m-%d %H:%M:%S"))
 say("Working dir : ", getwd())
 
@@ -2261,7 +2285,7 @@ n_after  <- nrow(covar)
 if (n_after == 0) die("No samples left after removing the related individuals.")
 
 # ---------------------------------------------------------- check covariates
-# The same checks the GRM script runs (covariate_checks.R): the columns exist,
+# The same checks the GRM script runs (covariate_checks.r): the columns exist,
 # no missing values, sex and disease coded 1/2, quantitative columns numeric,
 # and enough cases and controls in every level of each categorical covariate.
 # Any problem stops here; the offending rows go to <prefix>_covariate_problems.tsv.
@@ -2369,8 +2393,8 @@ write_tsv(plink_df, out("_plink.tsv"),
 #    they compare against before running.
 names_file  <- out("_plink_covar_names.txt")
 covar_names <- paste(c(sex_col, quant_covars, cat_covars, pc_names), collapse = ",")
-writeLines(c("# Written by make_covariate_files.R from covariate_settings.R. Do not edit;",
-             "# change covariate_settings.R and rerun make_covariate_files.R instead.",
+writeLines(c("# Written by make_covariate_files.r from covariate_settings.r. Do not edit;",
+             "# change covariate_settings.r and rerun make_covariate_files.r instead.",
              paste0("pheno_name=",    pheno_col),
              paste0("covar_names=",   covar_names),
              paste0("settings_file=", normalizePath(settings_file)),
@@ -2405,7 +2429,6 @@ say("=========================================================")
 
 sink()
 close(log_con)
-
 ```
 </details>
 
@@ -2413,7 +2436,32 @@ Then hit run:
 
 ```
 (base) [duarte@node1 outFolder_pca_andSuch]$ nano make_covariate_files.r
-(base) [duarte@node1 outFolder_pca_andSuch]$ Rscript  make_covariate_files.r
+(base) [duarte@node1 outFolder_pca_andSuch]$ Rscript make_covariate_files.r
+```
+
+The defaults already point to the files in this folder. Written out in full, the same run is:
+
+```
+(base) [duarte@node1 outFolder_pca_andSuch]$ Rscript make_covariate_files.r pcair_r2_covariates_merged.tsv NAToRA_output_pcrel_toRemove.txt . covariate_file_no_related_pairs covariate_settings.r
+```
+
+If a check fails, the script stops, prints the first offending samples, and saves all of them to a file:
+
+```
+(base) [duarte@node1 outFolder_pca_andSuch]$ cat covariate_file_no_related_pairs_covariate_problems.tsv
+```
+
+Fix them in `pcair_r2_covariates_merged.tsv` (or in `covariate_settings.r`, if a column name is wrong) and run it again. When it finishes, the log summarizes the checks, the sample counts and every file written:
+
+```
+(base) [duarte@node1 outFolder_pca_andSuch]$ less covariate_file_no_related_pairs.log
+(base) [duarte@node1 outFolder_pca_andSuch]$ ls covariate_file_no_related_pairs* unrelated_IIDs.txt
+```
+
+The plink2 GWAS scripts read the covariate list from this file, so it is worth a look:
+
+```
+(base) [duarte@node1 outFolder_pca_andSuch]$ cat covariate_file_no_related_pairs_plink_covar_names.txt
 ```
 
 
