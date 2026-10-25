@@ -4007,7 +4007,7 @@ The script needs three files from Step 4.c, and it is worth knowing what each on
 |---|---|---|
 | `--pheno` | `covariate_file_no_related_pairs_pheno.tsv` | `FID IID DISEASE`, no header. Must be coded 1 = control, 2 = case, otherwise `--prevalence` is silently ignored and you get no liability-scale row |
 | `--qcovar` | `covariate_file_no_related_pairs_qcovar.tsv` | `FID IID AGE PC1..PC10`, no header. The quantitative covariates |
-| `--covar` | `covariate_file_no_related_pairs_covar.tsv` | `FID IID SEX`, no header. The categorical covariates |
+| `--covar` | `covariate_file_no_related_pairs_covar.tsv` | `FID IID SEX`, no header. The categorical covariates. If any other categorical covariate has been added in step 4.c, it will appear in this file |
 
 <details>
 <summary>script: <code>merge_grms_runGREML.sh</code> — merges the 22 GRMs and runs single-GRM GREML across the prevalence grid</summary>
