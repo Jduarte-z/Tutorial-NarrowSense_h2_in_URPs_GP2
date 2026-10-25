@@ -3976,6 +3976,29 @@ pcrel_scale  <- "variant"                 # 'overall' for sensitivity
 sample_block_size <- 5000                 # important here that this is smaller than the your sample size
 snp_block_size   <- 10000                 #here we can reduce it to like 5,000 or 2,000 in order to reduce the peak ram usage
 
+# covariates for the LDAK covariate file (pd.ldak.covar, arms 4 to 7).
+# Use the column names exactly as they appear in covar_file.
+#
+# sex_col and pheno_col may only hold 1 or 2. Any other value (0, -9, NA)
+# stops the script and lists the samples.
+sex_col       <- "SEX"            # 1 = male, 2 = female; written as sex_d (female = 1, male = 0)
+pheno_col     <- "DISEASE"        # 1 = control, 2 = case; used to count cases and controls per level
+
+# Quantitative covariates, written to the file as they are.
+quant_covars  <- c("AGE")         # e.g. c("AGE", "BMI")
+
+# Categorical covariates, binary or multi-level. Each one becomes one 0/1 column
+# per level, except its most common level, which is the reference.
+cat_covars    <- character(0)     # e.g. c("COHORT") or c("COHORT", "PHASE")
+
+# Per-level check on the categorical covariates: a warning if a level has fewer
+# cases or controls than this, and a stop if it has none.
+min_per_level <- 10
+
+# The first n_pcs PCs (PC1, PC2, ...) in covar_file are always added after
+# these. A missing value in any of these columns stops the script and lists the
+# samples.
+
 op <- function(...) file.path(h2_out_dir, ...)
 
 
@@ -4040,6 +4063,193 @@ stopifnot(all(unrel_ids %in% rownames(pcs_all)))
 pcs_sub <- pcs_all[unrel_ids, , drop = FALSE]   # rownames = sample IDs; GENESIS matches on these
 
 cat("unrelated samples:", length(unrel_ids), " PCs:", ncol(pcs_sub), "\n")
+
+
+# --- LDAK covariate file, REQUIRED for arms 4 to 7 -----------------------
+# Arms 4 to 7 run PCGC through the LDAK program, and LDAK does not read the
+# GCTA-style covariate files that make_covariate_files.r wrote in step 4.c.
+# It wants a single all-numeric covariate file, with categorical variables
+# expressed as 0/1 dummies, which is what this block builds.
+#
+# Note this is the LDAK *software*, not the LDAK heritability model: section 4
+# rules out the LDAK-Thin model (alpha = -0.25), not the program.
+#
+# This block runs before PC-Relate on purpose, so a problem in the covariates
+# stops the script in seconds rather than after hours of compute. The columns it
+# uses are set in the config section. Rows follow unrel_ids order, not GRM order;
+# LDAK matches samples on FID/IID, so the order does not matter.
+
+pc_cols       <- paste0("PC", 1:n_pcs)
+problems_file <- op("covariate_problems.tsv")
+unlink(problems_file)        # remove a report left over from an earlier failed run
+
+# Print the offending rows (the first 50), save all of them to
+# problems_file, and stop.
+stop_with_list <- function(problem, rows) {
+  fwrite(rows, problems_file, sep = "\t")
+  cat("\n--- covariate problem ---\n")
+  print(head(rows, 50))
+  if (nrow(rows) > 50) cat("...", nrow(rows) - 50, "more rows not shown\n")
+  stop(problem, "\nFull list (", nrow(rows), " rows): ", problems_file, call. = FALSE)
+}
+
+
+# 1. Read the covariates and line them up with the unrelated samples.
+cv <- fread(covar_file, colClasses = c(IID = "character"))
+
+needed_cols  <- c(sex_col, pheno_col, quant_covars, cat_covars, pc_cols)
+missing_cols <- setdiff(needed_cols, names(cv))
+if (length(missing_cols) > 0)
+  stop("these columns are not in ", covar_file, ": ",
+       paste(missing_cols, collapse = ", "), call. = FALSE)
+
+dup_ids <- unique(cv$IID[duplicated(cv$IID)])
+if (length(dup_ids) > 0)
+  stop_with_list("some IIDs appear more than once in the covariate file",
+                 data.table(IID = dup_ids))
+
+not_in_file <- setdiff(unrel_ids, cv$IID)
+if (length(not_in_file) > 0)
+  stop_with_list("some unrelated samples are not in the covariate file",
+                 data.table(IID = not_in_file))
+
+cv <- cv[match(unrel_ids, IID), c("IID", needed_cols), with = FALSE]
+
+
+# 2. No missing values in any covariate. An empty text field counts as missing.
+is_missing <- function(x) {
+  if (is.character(x)) is.na(x) | trimws(x) == "" else is.na(x)
+}
+
+missing_vals <- rbindlist(lapply(needed_cols, function(v) {
+  ids <- cv$IID[is_missing(cv[[v]])]
+  data.table(IID = ids, column = rep(v, length(ids)))
+}))
+
+if (nrow(missing_vals) > 0) {
+  cat("\nmissing values per column:\n")
+  print(missing_vals[, .(n_missing = .N), by = column])
+  stop_with_list(paste("some samples have missing covariate values.",
+                       "Fill them in, or remove those samples, then rerun."),
+                 missing_vals)
+}
+
+
+# 3. SEX and DISEASE may only be 1 or 2.
+check_coded_1_2 <- function(v, meaning) {
+  bad <- !(cv[[v]] %in% c(1, 2))
+  if (any(bad)) {
+    cat("\nvalues of", v, "found:\n")
+    print(table(cv[[v]]))
+    stop_with_list(paste0(v, " must be coded only as 1 or 2 (", meaning, "). ",
+                          sum(bad), " samples have another value, such as 0 or -9. ",
+                          "Make sure ", v, " is only 1 and 2, then rerun."),
+                   data.table(IID = cv$IID[bad], value = cv[[v]][bad]))
+  }
+}
+check_coded_1_2(sex_col,   "1 = male, 2 = female")
+check_coded_1_2(pheno_col, "1 = control, 2 = case")
+
+is_case <- cv[[pheno_col]] == 2
+cat("cases:", sum(is_case), " controls:", sum(!is_case), "\n")
+
+
+# 4. Quantitative covariates and PCs must be numbers.
+for (v in c(quant_covars, pc_cols)) {
+  if (!is.numeric(cv[[v]])) {
+    example <- cv[[v]][is.na(suppressWarnings(as.numeric(cv[[v]])))][1]
+    stop(v, " is stored as text, not numbers (for example '", example, "'). ",
+         "Quantitative covariates must be numeric.", call. = FALSE)
+  }
+}
+
+if (length(quant_covars) > 0) {
+  cat("\n--- quantitative covariates (check the ranges for codes like -9) ---\n")
+  print(rbindlist(lapply(quant_covars, function(v)
+    data.table(covariate = v, min = min(cv[[v]]),
+               median = median(cv[[v]]), max = max(cv[[v]])))))
+}
+
+
+# 5. Categorical covariates: one 0/1 column per level, except the reference.
+#    The reference is the most common level; a tie goes to the level that
+#    sorts first. Each level is checked for enough cases and controls.
+dummies       <- list()        # the 0/1 columns, in the order they are made
+dummy_meaning <- character(0)  # what each one means, for the column key
+empty_levels  <- list()        # levels with no cases or no controls
+
+for (v in cat_covars) {
+  x <- as.character(cv[[v]])
+
+  per_level <- data.table(level = x, case = is_case)[
+    , .(n = .N, cases = sum(case), controls = sum(!case)), by = level]
+  setorder(per_level, -n, level)
+  per_level[, role := c("reference", rep("dummy", .N - 1))]
+
+  cat("\n---", v, ":", nrow(per_level), "levels ---\n")
+  print(per_level)
+
+  if (nrow(per_level) < 2)
+    stop(v, " has a single level, so it is constant and cannot be a covariate. ",
+         "Remove it from cat_covars.", call. = FALSE)
+
+  # Small levels: a warning, the run continues.
+  sparse <- per_level[cases > 0 & controls > 0 &
+                      (cases < min_per_level | controls < min_per_level)]
+  if (nrow(sparse) > 0)
+    warning(v, ": ", nrow(sparse), " level(s) with fewer than ", min_per_level,
+            " cases or controls: ", paste(sparse$level, collapse = ", "),
+            ". Their estimates will be unstable; consider merging them with another level.",
+            call. = FALSE, immediate. = TRUE)
+
+  # Levels with no cases or no controls: collected here, and the script
+  # stops once every categorical covariate has been printed.
+  empty <- per_level[cases == 0 | controls == 0]
+  if (nrow(empty) > 0)
+    empty_levels[[v]] <- cbind(covariate = v, empty)
+
+  # One 0/1 column for every level except the reference.
+  reference <- per_level$level[1]
+  for (lv in per_level$level[-1]) {
+    col <- paste0(tolower(v), "_", gsub("[^A-Za-z0-9]+", "_", lv))
+    if (col %in% names(dummies))
+      stop("two levels of ", v, " give the same column name, ", col,
+           ". Rename one of them in ", covar_file, ".", call. = FALSE)
+    dummies[[col]] <- as.integer(x == lv)
+    dummy_meaning  <- c(dummy_meaning,
+                        paste0("1 if ", v, " = ", lv, ", else 0 (reference: ", reference, ")"))
+  }
+}
+
+if (length(empty_levels) > 0)
+  stop_with_list(paste("some levels have no cases or no controls, so their 0/1 column",
+                       "would perfectly predict disease status. Merge or drop those levels,",
+                       "then rerun."),
+                 rbindlist(empty_levels))
+
+
+# 6. Assemble and write the file, plus a key to its columns (it has no header).
+ldak_cv <- data.table(FID   = cv$IID,                                 # the IID twice, as in the .grm.id
+                      IID   = cv$IID,
+                      sex_d = as.integer(cv[[sex_col]] == 2))         # female = 1, male = 0
+ldak_cv <- cbind(ldak_cv, cv[, quant_covars, with = FALSE])
+if (length(dummies) > 0) ldak_cv <- cbind(ldak_cv, as.data.table(dummies))
+ldak_cv <- cbind(ldak_cv, cv[, pc_cols, with = FALSE])
+
+key <- data.table(column  = seq_len(ncol(ldak_cv)),
+                  name    = names(ldak_cv),
+                  meaning = c("FID (the IID, as in the .grm.id)", "IID",
+                              paste0("1 = female, 0 = male (from ", sex_col, ")"),
+                              rep("quantitative, as is", length(quant_covars)),
+                              dummy_meaning,
+                              rep("PC-AiR round 2", n_pcs)))
+
+fwrite(ldak_cv, op("pd.ldak.covar"),         sep = "\t", col.names = FALSE)
+fwrite(key,     op("pd.ldak.covar.key.tsv"), sep = "\t")
+
+cat("\nLDAK covariate file written:", op("pd.ldak.covar"),
+    "|", nrow(ldak_cv), "samples, no header. Its columns:\n")
+print(key)
 
 
 # --- convert to GDS -----------------------------------------------------
@@ -4180,8 +4390,7 @@ for (start in seq(1, n, by = 500)) {
 system2("gzip", c("-f", txt))
 
 # The .grm.id must be in the same row order as the matrix, and carry the
-# FID/IID pair from the fam file. GCTA matches on the pair, and writing the IID
-# twice against a fam that has real FIDs silently intersects to zero samples.
+# FID/IID pair from the fam file.
 fam <- fread(paste0(h2_input, ".fam"), header = FALSE,
              col.names = c("FID","IID","PAT","MAT","SEX","PHENO"))
 k <- match(rownames(grm), fam$IID)
@@ -4192,52 +4401,6 @@ fwrite(data.table(FID = fam$IID[k], IID = fam$IID[k]),
 
 cat("GRM written to:", paste0(grm_stem, ".grm.gz"), "\n")
 
-
-
-# --- phenotype sanity check ---------------------------------------------
-cv <- fread(covar_file)
-cv <- cv[match(rownames(grm), cv$IID), ]
-stopifnot(!any(is.na(cv$IID)))
-cv[, `:=`(FID = fam$IID[k], IID = fam$IID[k])]
-
-# 1 = control, 2 = case (PLINK/GCTA convention)
-cv[, pheno := fifelse(DISEASE == 2, 2L, 1L)]
-cat("cases:", sum(cv$pheno == 2), " controls:", sum(cv$pheno == 1), "\n")
-
-
-# --- covariate file in LDAK format, REQUIRED for arms 4 to 7 -------------
-# Arms 4 to 7 run PCGC through the LDAK program, and LDAK does not read the
-# GCTA-style covariate files that make_covariate_files.r wrote in step 4.c.
-# It wants a single all-numeric covariate file, with categorical variables
-# expressed as 0/1 dummies, which is what this block builds.
-#
-# Note this is the LDAK *software*, not the LDAK heritability model: section 4
-# rules out the LDAK-Thin model (alpha = -0.25), not the program.
-#
-# Declare any cohort-specific categorical covariate here rather than editing
-# the code below. Leave it empty if you have none.
-extra_covars <- character(0)        # e.g. c("PHASE") or c("PHASE", "BATCH")
-
-cv[, sex_d := as.integer(SEX == 2)]
-cv[, age_n := as.numeric(AGE)]
-cat("AGE missing:", sum(is.na(cv$age_n)), "of", nrow(cv), "\n")
-
-dummy_cols <- character(0)
-for (v in extra_covars) {
-  if (!v %in% names(cv))
-    stop("extra covariate not found in ", covar_file, ": ", v)
-  lv <- sort(unique(stats::na.omit(cv[[v]])))
-  if (length(lv) != 2)
-    stop(v, " has ", length(lv), " levels. This shortcut only builds 0/1 dummies ",
-         "for binary variables; for more levels, build one dummy column per level yourself.")
-  newcol <- paste0(tolower(v), "_d")
-  set(cv, j = newcol, value = as.integer(cv[[v]] == lv[2]))
-  dummy_cols <- c(dummy_cols, newcol)
-}
-
-fwrite(cv[, c("FID", "IID", "sex_d", "age_n", dummy_cols, paste0("PC", 1:n_pcs)),
-          with = FALSE],
-       op("pd.ldak.covar"), sep = "\t", col.names = FALSE)
 
 
 # --- close the log ------------------------------------------------------
