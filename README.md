@@ -1081,7 +1081,31 @@ sample5ID	2	2	72
 
 Once you made sure that this is the shape of your covariate file, we can move onto the next step that involves PCA and such. Hence, we need to make sure our covariate file is at hand in the project structure.
 
-The above covariate file is just a simple example. You can include more covariates if needed, for example. Including different countries or genotyping batches could be necessarily depending on the structure of your cohort. In downstream scripts there is the possibility of adding more covariates (we make a note to remind you) so they are preserved across the analysis. Just make sure that those extra columns are present here.  
+The above covariate file is just a simple example. You can include more covariates if needed, for example. Including different countries or genotyping batches could be necessarily depending on the structure of your dataset. The additional covariates are needed to be present here, since dowsntream scripts will use them. 
+
+Other examples on how the files could look like:
+
+<details>
+    <summary>covar.txt</summary>
+IID	SEX	DISEASE	AGE COHORT <br>
+sample1ID	2	1	38 COHORT5 <br>
+sample2ID	1	1	33 COHORT3 <br>
+sample3ID	1	1	45 COHORT4 <br>
+sample4ID	2	2	66 COHORT2 <br>
+sample5ID	2	2	72 COHORT1
+</details>
+
+<details>
+    <summary>covar.txt</summary>
+IID	SEX	DISEASE	AGE COHORT <br>
+sample1ID	2	1	38 5 <br>
+sample2ID	1	1	33 3 <br>
+sample3ID	1	1	45 4 <br>
+sample4ID	2	2	66 2 <br>
+sample5ID	2	2	72 1
+</details>
+
+*A clarification note on covariates*: since it is fundamental to have the same covariates across the different set of analysis, below (in step 4.c) you will be required to input manually the covariates of the model and their nature (e.g. explicitly specify which categorical and quantiative variables will be part of the model).
 
 Here an example:
 ```
@@ -1884,7 +1908,262 @@ Resolving deltas: 100% (47/47), done.
 
 ### Step 4.c format the covariate file for downstream analysis
 
-Different tools to benchmark have different requirements on the type of covariate file format that the need, run this R script to subset the covariate file to the unrelated pairs identified through NAToRA, and create the different variations needed for the covariate file
+Different tools have different requirements on the type of covariate file format that the need. However, as we said in step 3, it is fundamental to include the same covariates in every tool that we will run. Hence, the scripts "covariate_settings.r" and covariate_checks.r" are meant to ensure a harmonized handling of covariate files and some sanity checks.
+
+First, copy and paste as it is the following script (it will be the core of some safety checks that step 4.c and step 10.b need)
+<details>
+<summary><strong>View script: <code>covariate_checks.r</code></strong></summary>
+
+<br>
+
+```r
+# Covariate checks shared by make_covariate_files.R and the PC-Relate GRM
+# script, so both apply exactly the same rules. Base R only.
+#
+# The functions use the variables from covariate_settings.R, so source that
+# file first. Keep this file in the same folder as covariate_settings.R.
+#
+#   read_covariates(covar_file)
+#       Reads the covariate file with every column as text, so values are
+#       written back exactly as they came in (no rounding, no scientific
+#       notation).
+#
+#   check_covariates(cv, ids, covar_file, problems_file)
+#       Checks the covariates of the samples in `ids` and prints a report.
+#       On any problem it saves the offending rows to problems_file and stops.
+#       It returns a list with:
+#         cv      : IID plus the covariate columns, one row per sample in `ids`
+#         is_case : TRUE for cases (pheno_col == 2)
+#         levels  : for each categorical covariate, a table of its levels with
+#                   n, cases and controls, most common level first
+
+
+read_covariates <- function(covar_file) {
+  read.table(covar_file, header = TRUE, sep = "\t",
+             colClasses = "character", check.names = FALSE,
+             comment.char = "", quote = "")
+}
+
+
+check_covariates <- function(cv, ids, covar_file, problems_file) {
+
+  cv <- as.data.frame(cv)
+  unlink(problems_file)        # remove a report left over from an earlier failed run
+
+  # Print the offending rows (the first 50), save all of them, and stop.
+  stop_with_list <- function(problem, rows) {
+    write.table(rows, problems_file, sep = "\t", quote = FALSE, row.names = FALSE)
+    cat("\n--- covariate problem ---\n")
+    print(head(rows, 50), row.names = FALSE)
+    if (nrow(rows) > 50) cat("...", nrow(rows) - 50, "more rows not shown\n")
+    stop(problem, "\nFull list (", nrow(rows), " rows): ", problems_file, call. = FALSE)
+  }
+
+  is_missing <- function(x) is.na(x) | trimws(x) == ""
+
+
+  # 0. The settings must be loaded, and no column may be listed twice.
+  settings <- c("sex_col", "pheno_col", "quant_covars", "cat_covars",
+                "n_pcs_covar", "min_per_level")
+  not_set  <- settings[!vapply(settings, exists, logical(1))]
+  if (length(not_set) > 0)
+    stop("these settings are not defined: ", paste(not_set, collapse = ", "),
+         ". Source covariate_settings.R first.", call. = FALSE)
+
+  pc_cols <- paste0("PC", seq_len(n_pcs_covar))
+  needed  <- c(sex_col, pheno_col, quant_covars, cat_covars, pc_cols)
+
+  twice <- unique(needed[duplicated(needed)])
+  if (length(twice) > 0)
+    stop("these columns are listed more than once in covariate_settings.R: ",
+         paste(twice, collapse = ", "), call. = FALSE)
+
+  cat("\n--- covariate settings ---\n")
+  cat("sex           :", sex_col, "\n")
+  cat("disease       :", pheno_col, "\n")
+  cat("quantitative  :", if (length(quant_covars)) quant_covars else "(none)", "\n")
+  cat("categorical   :", if (length(cat_covars))  cat_covars  else "(none)", "\n")
+  cat("PCs           : PC1 to PC", n_pcs_covar, "\n", sep = "")
+  cat("min per level :", min_per_level, "cases and controls\n")
+
+
+  # 1. Every column must exist, every IID must be unique, and every sample
+  #    must be in the file. Then keep only those samples, in the order of `ids`.
+  missing_cols <- setdiff(c("IID", needed), names(cv))
+  if (length(missing_cols) > 0)
+    stop("these columns are not in ", covar_file, ": ",
+         paste(missing_cols, collapse = ", "), call. = FALSE)
+
+  dup_ids <- unique(cv$IID[duplicated(cv$IID)])
+  if (length(dup_ids) > 0)
+    stop_with_list("some IIDs appear more than once in the covariate file",
+                   data.frame(IID = dup_ids))
+
+  not_in_file <- setdiff(ids, cv$IID)
+  if (length(not_in_file) > 0)
+    stop_with_list("some samples are not in the covariate file",
+                   data.frame(IID = not_in_file))
+
+  cv <- cv[match(ids, cv$IID), c("IID", needed), drop = FALSE]
+  rownames(cv) <- NULL
+
+
+  # 2. No missing values in any covariate. An empty field counts as missing.
+  missing_vals <- do.call(rbind, lapply(needed, function(v) {
+    ids_v <- cv$IID[is_missing(cv[[v]])]
+    data.frame(IID = ids_v, column = rep(v, length(ids_v)))
+  }))
+
+  if (nrow(missing_vals) > 0) {
+    cat("\nmissing values per column:\n")
+    print(table(column = missing_vals$column))
+    stop_with_list(paste("some samples have missing covariate values.",
+                         "Fill them in, or remove those samples, then rerun."),
+                   missing_vals)
+  }
+
+
+  # 3. Sex and disease status may only be 1 or 2.
+  check_coded_1_2 <- function(v, meaning) {
+    bad <- !(as.character(cv[[v]]) %in% c("1", "2"))
+    if (any(bad)) {
+      cat("\nvalues of", v, "found:\n")
+      print(table(cv[[v]]))
+      stop_with_list(paste0(v, " must be coded only as 1 or 2 (", meaning, "). ",
+                            sum(bad), " samples have another value, such as 0 or -9. ",
+                            "Make sure ", v, " is only 1 and 2, then rerun."),
+                     data.frame(IID = cv$IID[bad], value = cv[[v]][bad]))
+    }
+  }
+  check_coded_1_2(sex_col,   "1 = male, 2 = female")
+  check_coded_1_2(pheno_col, "1 = control, 2 = case")
+
+  is_case <- as.character(cv[[pheno_col]]) == "2"
+  cat("\ncases:", sum(is_case), " controls:", sum(!is_case), "\n")
+
+
+  # 4. Quantitative covariates and PCs must be numbers.
+  for (v in c(quant_covars, pc_cols)) {
+    bad <- is.na(suppressWarnings(as.numeric(cv[[v]])))
+    if (any(bad))
+      stop_with_list(paste0(v, " must be numeric, but some samples have text in it. ",
+                            "Fix those values, then rerun."),
+                     data.frame(IID = cv$IID[bad], value = cv[[v]][bad]))
+  }
+
+  if (length(quant_covars) > 0) {
+    cat("\n--- quantitative covariates (check the ranges for codes like -9) ---\n")
+    print(do.call(rbind, lapply(quant_covars, function(v) {
+      x <- as.numeric(cv[[v]])
+      data.frame(covariate = v, min = min(x), median = median(x), max = max(x))
+    })), row.names = FALSE)
+  }
+
+
+  # 5. Categorical covariates: cases and controls in every level. A level with
+  #    fewer than min_per_level gets a warning; a level with none stops the
+  #    script, once every categorical covariate has been printed.
+  levels_tables <- list()
+  empty_levels  <- list()
+
+  for (v in cat_covars) {
+    x         <- as.character(cv[[v]])
+    n_tab     <- table(x)
+    case_tab  <- table(factor(x[is_case], levels = names(n_tab)))
+
+    per_level <- data.frame(level = names(n_tab), n = as.integer(n_tab),
+                            cases = as.integer(case_tab))
+    per_level$controls <- per_level$n - per_level$cases
+    per_level <- per_level[order(-per_level$n, per_level$level), ]   # most common first
+    rownames(per_level) <- NULL
+
+    cat("\n---", v, ":", nrow(per_level), "levels ---\n")
+    print(per_level, row.names = FALSE)
+
+    if (nrow(per_level) < 2)
+      stop(v, " has a single level, so it is constant and cannot be a covariate. ",
+           "Remove it from cat_covars in covariate_settings.R.", call. = FALSE)
+
+    sparse <- per_level[per_level$cases > 0 & per_level$controls > 0 &
+                        (per_level$cases < min_per_level | per_level$controls < min_per_level), ]
+    if (nrow(sparse) > 0)
+      cat("WARNING: ", v, ": ", nrow(sparse), " level(s) with fewer than ", min_per_level,
+          " cases or controls: ", paste(sparse$level, collapse = ", "),
+          ". Their estimates will be unstable; consider merging them with another level.\n",
+          sep = "")
+
+    empty <- per_level[per_level$cases == 0 | per_level$controls == 0, ]
+    if (nrow(empty) > 0)
+      empty_levels[[v]] <- cbind(covariate = v, empty)
+
+    levels_tables[[v]] <- per_level
+  }
+
+  if (length(empty_levels) > 0)
+    stop_with_list(paste("some levels have no cases or no controls, so they would",
+                         "perfectly predict disease status. Merge or drop those levels,",
+                         "then rerun."),
+                   do.call(rbind, empty_levels))
+
+  list(cv = cv, is_case = is_case, levels = levels_tables)
+}
+```
+</details>
+
+Then, we need to modify this script and specify which covariates are needed and the nature of them (which covariate is quantitative, which covariate is categorical). Some datasets will only need SEX and AGE, but other may need additional covariates. So this script is meant to specify and harmonize this. 
+
+<details>
+<summary><strong>View script: <code>covariate_settings.r</code></strong></summary>
+
+<br>
+
+```r
+# Covariate settings, shared by two scripts so the GCTA and LDAK arms always
+# use the same covariates:
+#   make_covariate_files.R    step 4.c, writes the GCTA covariate files
+#   the PC-Relate GRM script  h2 project, writes pd.ldak.covar for LDAK
+# Both source this file. Edit the covariates here, not in the scripts.
+#
+# Keep this file next to pcair_r2_covariates_merged.tsv, together with
+# covariate_checks.R. Use the column names exactly as they appear in that file.
+
+
+# Sex and disease status. Each may only hold 1 or 2. Any other value (0, -9,
+# NA) stops both scripts and lists the samples.
+sex_col   <- "SEX"          # 1 = male, 2 = female
+pheno_col <- "DISEASE"      # 1 = control, 2 = case
+
+
+# Quantitative covariates.
+#   GCTA: written to _qcovar.tsv, before the PCs.
+#   LDAK: written to pd.ldak.covar as they are.
+quant_covars <- c("AGE")            # e.g. c("AGE", "BMI")
+
+
+# Categorical covariates, binary or multi-level. Leave it empty for none.
+#   GCTA: written to _covar.tsv after SEX, as raw levels; GCTA makes the dummies
+#         itself. A space inside a level becomes an underscore ('Site C' -> 'Site_C').
+#   LDAK: one 0/1 column per level, except the most common level, which is the
+#         reference.
+cat_covars   <- character(0)        # e.g. c("COHORT") or c("COHORT", "PHASE")
+
+
+# Number of PCs used as quantitative covariates (PC1, PC2, ...), in both
+# _qcovar.tsv and pd.ldak.covar. The PCs given to PC-Relate are set separately,
+# by n_pcs in the GRM script.
+n_pcs_covar  <- 10
+
+
+# Per-level check on the categorical covariates: a warning if a level has fewer
+# cases or controls than this, and a stop if it has none.
+min_per_level <- 10
+
+```
+</details>
+
+
+After you copied covariate_checks.r and made sure covariate_settings.r are in place, you can run run this R script to subset the covariate file to the unrelated pairs identified through NAToRA, and create the different variations needed for the covariate file.
+
 
 <details>
 <summary><strong>View script: <code>make_covariate_files.r</code></strong></summary>
@@ -1897,41 +2176,53 @@ Different tools to benchmark have different requirements on the type of covariat
 # Build the covariate/phenotype files for the unrelated subset.
 #
 # Usage:
-#   Rscript make_covariate_files.R [covariates.tsv] [toRemove.txt] [outdir] [prefix]
+#   Rscript make_covariate_files.R [covariates.tsv] [toRemove.txt] [outdir] [prefix] [settings.R]
 #
 # Defaults:
 #   covariates.tsv = pcair_r2_covariates_merged.tsv
 #   toRemove.txt   = NAToRA_output_pcrel_toRemove.txt
 #   outdir         = .
 #   prefix         = covariate_file_no_related_pairs
+#   settings.R     = covariate_settings.R
+#
+# Which columns are quantitative or categorical, and any additional
+# covariates, are set in covariate_settings.R, not here. That file is shared
+# with the PC-Relate GRM script so the GCTA and LDAK arms use the same
+# covariates. The checks are in covariate_checks.R, which must sit in the same
+# folder as the settings file.
+#
+# The plink2 GWAS scripts (plinkGWAS.py / plinkGWAS.sh) read two files written
+# here, <prefix>_plink.tsv and <prefix>_plink_covar_names.txt, so they use the
+# same covariates too. Rerun this script after any change to the settings: the
+# GWAS scripts compare a checksum of covariate_settings.R and refuse to run if
+# it changed since this script last ran.
 #
 # Everything printed to the screen is also written to <outdir>/<prefix>.log
 
 args <- commandArgs(trailingOnly = TRUE)
 
-covar_file  <- if (length(args) >= 1) args[1] else "./pcair_r2_covariates_merged.tsv"
-remove_file <- if (length(args) >= 2) args[2] else "./NAToRA_output_pcrel_toRemove.txt"
-outdir      <- if (length(args) >= 3) args[3] else "."
-prefix      <- if (length(args) >= 4) args[4] else "covariate_file_no_related_pairs"
-
-n_pcs <- 10
+covar_file    <- if (length(args) >= 1) args[1] else "./pcair_r2_covariates_merged.tsv"
+remove_file   <- if (length(args) >= 2) args[2] else "./NAToRA_output_pcrel_toRemove.txt"
+outdir        <- if (length(args) >= 3) args[3] else "."
+prefix        <- if (length(args) >= 4) args[4] else "covariate_file_no_related_pairs"
+settings_file <- if (length(args) >= 5) args[5] else "./covariate_settings.R"
+checks_file   <- file.path(dirname(settings_file), "covariate_checks.R")
 
 if (!dir.exists(outdir)) dir.create(outdir, recursive = TRUE)
 
 # ------------------------------------------------------------------- logging
-# say() prints to the screen and appends the same line to the log file.
+# Everything printed (by say(), cat() or print(), including the report from
+# the shared checks) goes to the screen and to the log file.
 log_file <- file.path(outdir, paste0(prefix, ".log"))
-cat("", file = log_file)   # start a fresh log on every run
+log_con  <- file(log_file, open = "wt")   # start a fresh log on every run
+sink(log_con, split = TRUE)
 
-say <- function(...) {
-  msg <- paste0(..., "\n")
-  cat(msg)
-  cat(msg, file = log_file, append = TRUE)
-}
+say <- function(...) cat(paste0(..., "\n"))
 
 # Errors are logged too, then re-raised so the exit status stays non-zero.
 die <- function(...) {
   say("ERROR: ", ...)
+  flush(log_con)
   stop(..., call. = FALSE)
 }
 
@@ -1939,27 +2230,27 @@ say("=== make_covariate_files.R ===============================")
 say("Run started : ", format(Sys.time(), "%Y-%m-%d %H:%M:%S"))
 say("Working dir : ", getwd())
 
-if (!file.exists(covar_file))  die("Covariate file not found: ", covar_file)
-if (!file.exists(remove_file)) die("Removal list not found: ", remove_file)
+if (!file.exists(covar_file))    die("Covariate file not found: ", covar_file)
+if (!file.exists(remove_file))   die("Removal list not found: ", remove_file)
+if (!file.exists(settings_file)) die("Settings file not found: ", settings_file)
+if (!file.exists(checks_file))   die("Checks file not found: ", checks_file,
+                                     " (it must sit in the same folder as the settings file)")
+
+# ------------------------------------------------- settings and shared checks
+source(settings_file)   # sex_col, pheno_col, quant_covars, cat_covars, n_pcs_covar, min_per_level
+source(checks_file)     # read_covariates(), check_covariates()
+
+say("Settings    : ", settings_file)
+pc_names <- paste0("PC", seq_len(n_pcs_covar))
 
 # ---------------------------------------------------------------- read input
 # Everything is read as character so IDs and numeric values are written back
 # exactly as they came in (no rounding, no scientific notation).
-covar <- read.table(covar_file, header = TRUE, sep = "\t",
-                    colClasses = "character", check.names = FALSE,
-                    comment.char = "", quote = "")
+covar <- read_covariates(covar_file)
 
 to_remove <- readLines(remove_file)
 to_remove <- trimws(to_remove)
 to_remove <- to_remove[nzchar(to_remove)]
-
-# --------------------------------------------------------- check the columns
-pc_names <- paste0("PC", seq_len(n_pcs))
-needed   <- c("IID", "SEX", "AGE", "DISEASE", pc_names)
-missing  <- setdiff(needed, names(covar))
-if (length(missing) > 0) {
-  die("Missing column(s) in ", covar_file, ": ", paste(missing, collapse = ", "))
-}
 
 # --------------------------------------------------------------- filter rows
 n_before <- nrow(covar)
@@ -1969,50 +2260,128 @@ n_after  <- nrow(covar)
 
 if (n_after == 0) die("No samples left after removing the related individuals.")
 
+# ---------------------------------------------------------- check covariates
+# The same checks the GRM script runs (covariate_checks.R): the columns exist,
+# no missing values, sex and disease coded 1/2, quantitative columns numeric,
+# and enough cases and controls in every level of each categorical covariate.
+# Any problem stops here; the offending rows go to <prefix>_covariate_problems.tsv.
+problems_file <- file.path(outdir, paste0(prefix, "_covariate_problems.tsv"))
+
+checked <- tryCatch(check_covariates(covar, covar$IID, covar_file, problems_file),
+                    error = function(e) die(conditionMessage(e)))
+cv      <- checked$cv        # IID plus the covariate columns, same rows as covar
+
 FID <- covar$IID
 IID <- covar$IID
+
+# --------------------------------------- categorical covariates for GCTA
+# Written as raw levels: GCTA's --covar makes the dummies itself. GCTA splits
+# columns on whitespace, so a space inside a level becomes an underscore.
+gcta_cat <- cv[, c(sex_col, cat_covars), drop = FALSE]
+
+for (v in cat_covars) {
+  old <- gcta_cat[[v]]
+  new <- gsub("\\s+", "_", old)
+
+  renamed <- unique(old[old != new])
+  for (lv in renamed)
+    say("  ", v, ": level '", lv, "' written as '", gsub("\\s+", "_", lv), "'")
+
+  if (length(unique(new)) != length(unique(old)))
+    die(v, ": replacing spaces with underscores makes two levels identical ",
+        "(e.g. 'Site C' and 'Site_C'). Rename one of them in ", covar_file, ".")
+
+  gcta_cat[[v]] <- new
+}
+
+# --------------------------------------- categorical covariates for plink2
+# plink2 also builds the dummies itself, but it treats a column as categorical
+# only if it holds text. A categorical column whose levels are all numbers would
+# be fit as one quantitative term, so its levels get the column name as a
+# prefix (PHASE 1 -> PHASE_1). Columns that already hold text are left as they
+# are. Spaces are already underscores (from the GCTA step), since plink2 also
+# splits columns on spaces.
+plink_cat <- gcta_cat[, cat_covars, drop = FALSE]
+
+for (v in cat_covars) {
+  all_numbers <- !anyNA(suppressWarnings(as.numeric(plink_cat[[v]])))
+  if (all_numbers) {
+    plink_cat[[v]] <- paste0(v, "_", plink_cat[[v]])
+    say("  ", v, ": levels are all numbers, so for plink2 they are written as ",
+        v, "_<level> (e.g. ", plink_cat[[v]][1], ")")
+  }
+}
 
 # ------------------------------------------------------------- write outputs
 out <- function(suffix) file.path(outdir, paste0(prefix, suffix))
 
 written <- character(0)   # collected for the log
 
-write_tsv <- function(df, path, col.names = FALSE) {
+write_tsv <- function(df, path, columns, col.names = FALSE) {
   write.table(df, path, sep = "\t", quote = FALSE,
               row.names = FALSE, col.names = col.names)
-  written <<- c(written, path)
+  written <<- c(written, paste0(path, "  (", nrow(df), " rows; ", columns, ")"))
 }
 
-# 1. FID IID SEX  (categorical covariate, no header)
-write_tsv(data.frame(FID, IID, covar$SEX), out("_covar.tsv"))
+# 1. FID IID SEX + categorical covariates  (GCTA --covar, no header)
+write_tsv(data.frame(FID, IID, gcta_cat), out("_covar.tsv"),
+          paste(c("FID", "IID", sex_col, cat_covars), collapse = " "))
 
 # 2. FID IID  (no header)
-write_tsv(data.frame(FID, IID), out("_IIDs.txt"))
+write_tsv(data.frame(FID, IID), out("_IIDs.txt"), "FID IID")
 
-# 3. FID IID PC1..PC10  (no header)
-write_tsv(data.frame(FID, IID, covar[, pc_names]), out("_PCs.tsv"))
+# 3. FID IID PC1..PCn  (no header)
+write_tsv(data.frame(FID, IID, cv[, pc_names, drop = FALSE]), out("_PCs.tsv"),
+          paste0("FID IID PC1..PC", n_pcs_covar))
 
 # 4. FID IID DISEASE  (no header)
-write_tsv(data.frame(FID, IID, covar$DISEASE), out("_pheno.tsv"))
+write_tsv(data.frame(FID, IID, cv[[pheno_col]]), out("_pheno.tsv"),
+          paste("FID IID", pheno_col))
 
-# 5. FID IID AGE PC1..PC10  (quantitative covariates, no header)
-write_tsv(data.frame(FID, IID, covar$AGE, covar[, pc_names]), out("_qcovar.tsv"))
+# 5. FID IID quantitative covariates + PC1..PCn  (GCTA --qcovar, no header)
+write_tsv(data.frame(FID, IID, cv[, c(quant_covars, pc_names), drop = FALSE]),
+          out("_qcovar.tsv"),
+          paste0(paste(c("FID", "IID", quant_covars), collapse = " "),
+                 " PC1..PC", n_pcs_covar))
 
 # 6. Full covariate table with a proper header (IID column becomes FID + IID)
 full <- data.frame(FID, covar, check.names = FALSE)
-write_tsv(full, out(".tsv"), col.names = TRUE)
+write_tsv(full, out(".tsv"), "every input column, with header", col.names = TRUE)
 
 # 7. Single-column list of the unrelated IIDs
 iid_file <- file.path(outdir, "unrelated_IIDs.txt")
 writeLines(IID, iid_file)
-written <- c(written, iid_file)
+written <- c(written, paste0(iid_file, "  (", length(IID), " rows; IID)"))
+
+# 8. plink2-ready phenotype and covariates, with a header  (--pheno and --covar)
+plink_df   <- data.frame(FID, IID,
+                         cv[, c(pheno_col, sex_col, quant_covars), drop = FALSE],
+                         plink_cat,
+                         cv[, pc_names, drop = FALSE],
+                         check.names = FALSE)
+write_tsv(plink_df, out("_plink.tsv"),
+          paste0(paste(c("FID", "IID", pheno_col, sex_col, quant_covars, cat_covars),
+                       collapse = " "), " PC1..PC", n_pcs_covar, ", with header"),
+          col.names = TRUE)
+
+# 9. What the plink2 GWAS scripts need to know, as key=value lines: the
+#    phenotype, the --covar-name list, and the checksum of the settings file
+#    they compare against before running.
+names_file  <- out("_plink_covar_names.txt")
+covar_names <- paste(c(sex_col, quant_covars, cat_covars, pc_names), collapse = ",")
+writeLines(c("# Written by make_covariate_files.R from covariate_settings.R. Do not edit;",
+             "# change covariate_settings.R and rerun make_covariate_files.R instead.",
+             paste0("pheno_name=",    pheno_col),
+             paste0("covar_names=",   covar_names),
+             paste0("settings_file=", normalizePath(settings_file)),
+             paste0("settings_md5=",  unname(tools::md5sum(settings_file)))),
+           names_file)
+written <- c(written, paste0(names_file, "  (pheno_name, covar_names, settings checksum)"))
 
 # -------------------------------------------------------------- sample counts
-disease  <- covar$DISEASE
-n_cases  <- sum(disease == "2", na.rm = TRUE)
-n_ctrls  <- sum(disease == "1", na.rm = TRUE)
-n_other  <- n_after - n_cases - n_ctrls
-prop     <- n_cases / (n_cases + n_ctrls)
+n_cases <- sum(checked$is_case)
+n_ctrls <- sum(!checked$is_case)
+prop    <- n_cases / (n_cases + n_ctrls)
 
 say("")
 say("--- Summary ---------------------------------------------")
@@ -2022,20 +2391,20 @@ say("Removal list            : ", remove_file,
 say("Samples before removal  : ", n_before)
 say("Samples removed         : ", n_before - n_after)
 say("Total sample size       : ", n_after)
-say("Cases    (DISEASE = 2)  : ", n_cases)
-say("Controls (DISEASE = 1)  : ", n_ctrls)
-if (n_other > 0) {
-  say("Other/missing DISEASE   : ", n_other, " (excluded from the proportion)")
-}
+say("Cases    (", pheno_col, " = 2)  : ", n_cases)
+say("Controls (", pheno_col, " = 1)  : ", n_ctrls)
 say("Disease proportion      : ", sprintf("%.6f", prop),
     sprintf(" (%.2f%%)", 100 * prop))
 say("")
 say("--- Files written ---------------------------------------")
-for (f in written) say("  ", f, "  (", nrow(covar), " rows)")
+for (f in written) say("  ", f)
 say("")
 say("Run finished: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S"))
 say("Log file    : ", log_file)
 say("=========================================================")
+
+sink()
+close(log_con)
 
 ```
 </details>
