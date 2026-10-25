@@ -3364,12 +3364,13 @@ One cause to rule out: Step 4.c writes the IID in the FID column as well, so the
 
 ```console
 (base) [duarte@node1 gwas]$ grep "Total sample size" ../pca_and_such/outFolder_pca_andSuch/covariate_file_no_related_pairs.log
-Total sample size       : 6412
+Total sample size       : xxxx
 (base) [duarte@node1 gwas]$ awk '$1 != $2' ../reference_panel/chr22/chr22.plink1.extracted_cmUpdated.fam | head
 (base) [duarte@node1 gwas]$
 ```
 
 </details>
+
 ### Step 6.a parse the summary statistics with GWASLab
 
 The 22 association files now have to become a single set of summary statistics in the format that LDSC reads. We use [GWASLab](https://cloufield.github.io/gwaslab/) for this, because it harmonises the alleles, rebuilds the variant IDs, sorts by coordinate and exports straight to the LDSC format in one pass, while also giving us the Manhattan and QQ plots we want to inspect anyway.
