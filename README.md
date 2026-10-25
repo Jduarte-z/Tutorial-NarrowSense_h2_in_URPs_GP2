@@ -2134,7 +2134,7 @@ Use the column names exactly as they appear in `pcair_r2_covariates_merged.tsv`.
 # Covariate settings, shared by two scripts so the GCTA and LDAK arms always
 # use the same covariates:
 #   make_covariate_files.r    step 4.c, writes the GCTA covariate files
-#   the PC-Relate GRM script  h2 project, writes pd.ldak.covar for LDAK
+#   the PC-Relate GRM script  step 10.b, writes pd.ldak.covar for LDAK format
 # Both source this file. Edit the covariates here, not in the scripts.
 #
 # Keep this file next to pcair_r2_covariates_merged.tsv, together with
@@ -2162,8 +2162,7 @@ cat_covars   <- character(0)        # e.g. c("COHORT") or c("COHORT", "PHASE")
 
 
 # Number of PCs used as quantitative covariates (PC1, PC2, ...), in both
-# _qcovar.tsv and pd.ldak.covar. The PCs given to PC-Relate are set separately,
-# by n_pcs in the GRM script.
+# _qcovar.tsv and pd.ldak.covar. The PCs given to PC-Relate are set separately in their own scripts by n_pcs in the GRM script.
 n_pcs_covar  <- 10
 
 
@@ -2177,16 +2176,16 @@ min_per_level <- 10
 (base) [duarte@node1 outFolder_pca_andSuch]$ nano covariate_settings.r
 ```
 
-For example, for a cohort that merges recruitment sites and two genotyping phases, the covariate lines would read:
+For example, for a dataset that merges two genotyping phases (like LARGE-PD), the covariate lines would read:
 
 ```r
 quant_covars <- c("AGE")
-cat_covars   <- c("COHORT", "PHASE")
+cat_covars   <- c("PHASE")
 ```
 
-> **Important:** any time you edit `covariate_settings.r`, rerun `make_covariate_files.r` below. The GWAS scripts compare a checksum of the settings file and refuse to run if it changed after step 4.c last ran, even if only a comment was edited.
+> **Important:** any time you edit `covariate_settings.r`, rerun `make_covariate_files.r` below. The GWAS scripts from step 6 compare a checksum of the settings file and refuse to run if it changed after step 4.c last ran, even if only a comment was edited.
 
-After you copied `covariate_checks.r` and made sure `covariate_settings.r` is in place, you can run this R script. It removes the related individuals identified through NAToRA, runs the covariate checks on the remaining samples, and creates the different versions of the covariate file that GCTA, LDAK and plink2 need.
+After you copied `covariate_checks.r` and made sure `covariate_settings.r` is in place, you can run this R script. It removes the related individuals identified through NAToRA, runs the covariate checks on the remaining samples, and creates the different versions of files that GCTA, LDAK, LDSC and plink2 programs need.
 
 
 <details>
@@ -2458,7 +2457,7 @@ Fix them in `pcair_r2_covariates_merged.tsv` (or in `covariate_settings.r`, if a
 (base) [duarte@node1 outFolder_pca_andSuch]$ ls covariate_file_no_related_pairs* unrelated_IIDs.txt
 ```
 
-The plink2 GWAS scripts read the covariate list from this file, so it is worth a look:
+The plink2 GWAS scripts from step 6 read the covariate list from this file, so it is worth a look:
 
 ```
 (base) [duarte@node1 outFolder_pca_andSuch]$ cat covariate_file_no_related_pairs_plink_covar_names.txt
@@ -3005,7 +3004,7 @@ Recall the caveat from section 4: cov-LDSC regresses the chi-square statistics o
 
 The good news is that we have already done the work that makes this automatic. The `bed/bim/fam` filesets we built in Step 5.b are already restricted to the unrelated samples, already MAF-filtered, and already carry the final variant IDs. So instead of running the GWAS on the imputed data and then trying to reconcile the two variant sets afterwards, **we run the GWAS directly on the reference panel filesets themselves**. The universes then cannot drift apart, because they are literally the same files. 
 
-Note: the authors of cov-LDSC argue that you can use a subset of your samples to compute the reference panel (between 1-5K).However, since we like to benchmark several other methods using this same universe of genetic variants, we are proposing on using the whole cohort in both the GWAS and reference panel. Because this full parsed genetic dataset will be feed into GRM based methods to compute them either way. 
+Note: the authors of cov-LDSC argue that you can use a subset of your samples to compute the reference panel (between 1-5K). However, since we like to benchmark several other methods using this same universe of genetic variants, we are proposing to use the whole cohort in both the GWAS and the reference panel, because this full parsed genetic dataset will be fed into GRM-based methods either way. 
 
 Let us create a folder for this step, at the same level as `reference_panel`:
 
@@ -3018,15 +3017,27 @@ Let us create a folder for this step, at the same level as `reference_panel`:
 (base) [duarte@node1 working_directory_h2]$ cd gwas/
 (base) [duarte@node1 gwas]$ pwd
 /home/duarte/working_directory_h2/gwas
-(base) [duarte@node1 working_directory_h2]$ ls ..
+(base) [duarte@node1 gwas]$ ls ..
 genetic_data  gwas  pca_and_such  programs  reference_panel
 ```
 
 </details>
 
-**A note on the covariates.** The model below uses `SEX`, `AGE` and `PC1..PC10`, all read from the full covariate table written in Step 4.c. In my own run I also carry a `PHASE` covariate, because LARGE-PD merges two recruitment phases that were genotyped separately, and batch effects of that kind must be adjusted for. Most cohorts will not have that column, so in the scripts below it is exposed as an `extra_covars` variable that is **empty by default**. If your cohort uses additional covariates remember that whatever you add here must also be present when the same covariate file is used in the GRM-based arms later on, otherwise the arms stop being comparable.
+**A note on the covariates.** Neither script below decides which covariates go into the model. They read it from two files that `make_covariate_files.r` wrote in Step 4.c, in `outFolder_pca_andSuch`:
 
-As a python script to submit 22 different jobs
+- `covariate_file_no_related_pairs_plink.tsv` holds the phenotype and every covariate of the unrelated samples, with a header, in a form plink2 reads directly. Spaces inside categorical levels are already underscores, and a categorical column whose levels are all numbers carries the column name as a prefix (`PHASE` 1/2 becomes `PHASE_1`/`PHASE_2`), because plink2 only treats a column as categorical if it holds text.
+- `covariate_file_no_related_pairs_plink_covar_names.txt` holds the phenotype name and the exact `--covar-name` list.
+
+Both are built from `covariate_settings.r`, so the GWAS uses the same covariates as the GCTA and LDAK arms. With the default settings the model is `SEX`, `AGE` and `PC1..PC10`. If your cohort needs more covariates (say `COHORT` or `PHASE`), add them to `covariate_settings.r` and rerun Step 4.c; nothing in this step changes. plink2 builds the dummy variables for categorical covariates itself, and `--covar-variance-standardize` only rescales the quantitative ones.
+
+Before writing or submitting anything, both scripts compare a checksum of `covariate_settings.r` with the one recorded by Step 4.c. If the settings changed after Step 4.c last ran, even just a comment, they stop and ask you to rerun it.
+
+Two things to keep in mind:
+
+- The number of PCs in the model is `n_pcs_covar` in `covariate_settings.r`. Keep it equal to the number of PCs used to adjust the cov-LDSC LD scores; that is the caveat at the top of this step.
+- If you used a prefix other than `covariate_file_no_related_pairs` in Step 4.c, set `prefix` at the top of the script to match.
+
+As a python script that submits 22 jobs, one per chromosome:
 
 <details>
 <summary>script: <code>plinkGWAS.py</code> — writes one SLURM .pbs per chromosome and submits all 22</summary>
@@ -3035,7 +3046,9 @@ As a python script to submit 22 different jobs
 # Quick GWAS on the same samples and variants that make up the reference panel.
 # Run it inside /working_directory_h2/gwas
 
+import hashlib
 import os
+import sys
 
 # ---- cluster resources: adjust to what your scheduler offers -----------------
 threads   = 8
@@ -3043,19 +3056,61 @@ email     = "your_mail@email.org"
 partition = "defq"
 
 # ---- covariates --------------------------------------------------------------
-# The full covariate table written in step 4.c (has a header: FID IID SEX DISEASE AGE PC1..PC10)
-covar = "../pca_and_such/outFolder_pca_andSuch/covariate_file_no_related_pairs.tsv"
+# Which covariates go in the model is NOT set here. It comes from
+# covariate_settings.r (sex, quantitative and categorical covariates, number of
+# PCs), the same file the GCTA and LDAK arms use. make_covariate_files.r
+# (step 4.c) turns those settings into two files that this script reads:
+#   <prefix>_plink.tsv              phenotype and covariates, plink-ready, with a header
+#   <prefix>_plink_covar_names.txt  the phenotype name and the --covar-name list
+# To change the covariates, edit covariate_settings.r and rerun step 4.c.
+# plink2 makes the dummies for categorical covariates itself.
+pca_dir = "../pca_and_such/outFolder_pca_andSuch"
+prefix  = "covariate_file_no_related_pairs"          # the prefix used in step 4.c
 
-# Any extra cohort-specific covariate, comma separated and WITHOUT a trailing comma.
-# Leave it as "" if you have none. Example: "PHASE" for a cohort that merges two
-# recruitment phases genotyped separately, or "BATCH,ARRAY".
-extra_covars = ""
-
-pcs         = ",".join(f"PC{n}" for n in range(1, 11))
-covar_names = ",".join(x for x in ["SEX", "AGE", extra_covars, pcs] if x)
+covar      = f"{pca_dir}/{prefix}_plink.tsv"
+names_file = f"{pca_dir}/{prefix}_plink_covar_names.txt"
+settings   = f"{pca_dir}/covariate_settings.r"
 
 # ---- programs, as relative paths from ./gwas --------------------------------
 plink2 = "../programs/plink2"
+
+
+# ---- fail early, before any job is submitted --------------------------------
+def fail(message):
+    sys.exit(f"ERROR: {message}")
+
+for f in (covar, names_file, settings):
+    if not os.path.isfile(f):
+        fail(f"file not found: {f}. Run make_covariate_files.r (step 4.c) first.")
+
+# The names file holds key=value lines; lines starting with # are comments.
+model = {}
+with open(names_file) as fh:
+    for line in fh:
+        line = line.strip()
+        if line and not line.startswith("#"):
+            key, value = line.split("=", 1)
+            model[key] = value
+
+for key in ("pheno_name", "covar_names", "settings_md5"):
+    if not model.get(key):
+        fail(f"{names_file} has no '{key}' line. Rerun make_covariate_files.r (step 4.c).")
+
+# Refuse to run if covariate_settings.r changed after step 4.c wrote the
+# names file: the covariate files would no longer match the settings.
+with open(settings, "rb") as fh:
+    current_md5 = hashlib.md5(fh.read()).hexdigest()
+
+if current_md5 != model["settings_md5"]:
+    fail(f"{settings} has changed since make_covariate_files.r last ran "
+         f"(that run used {model.get('settings_file', 'an unknown settings file')}). "
+         f"Rerun step 4.c so the covariate files match the settings, then run this again.")
+
+pheno_name  = model["pheno_name"]
+covar_names = model["covar_names"]
+print(f"phenotype : {pheno_name}")
+print(f"covariates: {covar_names}")
+
 
 os.makedirs("./logs", exist_ok=True)
 os.makedirs("./out",  exist_ok=True)
@@ -3085,7 +3140,7 @@ for i in range(1, 23):
         # hide-covar keeps only the ADD line per variant, which is all we need
         # cols=+a1freq adds A1_FREQ, needed downstream by gwaslab
         f"--glm hide-covar cols=+a1freq omit-ref "
-        f"--pheno {covar} --pheno-name DISEASE "
+        f"--pheno {covar} --pheno-name {pheno_name} "
         f"--covar {covar} --covar-name {covar_names} "
         # puts every covariate on the same scale, which helps the model converge
         f"--covar-variance-standardize "
@@ -3095,6 +3150,7 @@ for i in range(1, 23):
 
     fileSbatch.close()
     os.system(f"sbatch ./logs/{i}plinkGWAS.pbs")
+
 ```
 
 </details>
@@ -3107,6 +3163,8 @@ For running it do:
 ```console
 (base) [duarte@node1 gwas]$ nano plinkGWAS.py
 (base) [duarte@node1 gwas]$ python plinkGWAS.py
+phenotype : DISEASE
+covariates: SEX,AGE,PC1,PC2,PC3,PC4,PC5,PC6,PC7,PC8,PC9,PC10
 Submitted batch job 6114512
 Submitted batch job 6114513
 Submitted batch job 6114514
@@ -3134,6 +3192,22 @@ Submitted batch job 6114533
 
 </details>
 
+The first two lines are the phenotype and covariates read from the Step 4.c files; check them before the jobs start piling up in the queue. If `covariate_settings.r` was edited after Step 4.c, the script stops before submitting anything:
+
+<details>
+<summary>terminal example: the settings changed after Step 4.c, so rerun Step 4.c first</summary>
+
+```console
+(base) [duarte@node1 gwas]$ python plinkGWAS.py
+ERROR: ../pca_and_such/outFolder_pca_andSuch/covariate_settings.r has changed since make_covariate_files.r last ran (that run used /home/duarte/working_directory_h2/pca_and_such/outFolder_pca_andSuch/covariate_settings.r). Rerun step 4.c so the covariate files match the settings, then run this again.
+(base) [duarte@node1 gwas]$ cd ../pca_and_such/outFolder_pca_andSuch/
+(base) [duarte@node1 outFolder_pca_andSuch]$ Rscript make_covariate_files.r
+(base) [duarte@node1 outFolder_pca_andSuch]$ cd ../../gwas/
+(base) [duarte@node1 gwas]$ python plinkGWAS.py
+```
+
+</details>
+
 If you prefer to work in series through your terminal here is the equivalent for loop. This step is much lighter than Step 5.b, so running it sequentially is perfectly reasonable.
 
 <details>
@@ -3150,18 +3224,20 @@ set -euo pipefail
 threads=8
 
 # ---- covariates -------------------------------------------------------------
-covar="../pca_and_such/outFolder_pca_andSuch/covariate_file_no_related_pairs.tsv"
+# Which covariates go in the model is NOT set here. It comes from
+# covariate_settings.r (sex, quantitative and categorical covariates, number of
+# PCs), the same file the GCTA and LDAK arms use. make_covariate_files.r
+# (step 4.c) turns those settings into two files that this script reads:
+#   <prefix>_plink.tsv              phenotype and covariates, plink-ready, with a header
+#   <prefix>_plink_covar_names.txt  the phenotype name and the --covar-name list
+# To change the covariates, edit covariate_settings.r and rerun step 4.c.
+# plink2 makes the dummies for categorical covariates itself.
+pca_dir="../pca_and_such/outFolder_pca_andSuch"
+prefix="covariate_file_no_related_pairs"          # the prefix used in step 4.c
 
-# Any extra cohort-specific covariate, comma separated and WITHOUT a trailing comma.
-# Leave empty if you have none. Example: extra_covars="PHASE"
-extra_covars=""
-
-pcs="PC1,PC2,PC3,PC4,PC5,PC6,PC7,PC8,PC9,PC10"
-if [[ -n "${extra_covars}" ]]; then
-    covar_names="SEX,AGE,${extra_covars},${pcs}"
-else
-    covar_names="SEX,AGE,${pcs}"
-fi
+covar="${pca_dir}/${prefix}_plink.tsv"
+names_file="${pca_dir}/${prefix}_plink_covar_names.txt"
+settings="${pca_dir}/covariate_settings.r"
 
 # ---- programs, as relative paths from ./gwas --------------------------------
 plink2="../programs/plink2"
@@ -3169,10 +3245,37 @@ plink2="../programs/plink2"
 mkdir -p ./logs ./out
 
 # ---- fail early if anything is missing --------------------------------------
-if [[ ! -s "${covar}" ]]; then
-    echo "ERROR: missing or empty covariate file: ${covar}" >&2
+for f in "${covar}" "${names_file}" "${settings}"; do
+    if [[ ! -s "${f}" ]]; then
+        echo "ERROR: missing or empty file: ${f}. Run make_covariate_files.r (step 4.c) first." >&2
+        exit 1
+    fi
+done
+
+# The names file holds key=value lines; this reads the value for one key.
+get_value() { grep "^$1=" "${names_file}" | cut -d= -f2- || true; }
+
+pheno_name=$(get_value pheno_name)
+covar_names=$(get_value covar_names)
+recorded_md5=$(get_value settings_md5)
+
+if [[ -z "${pheno_name}" || -z "${covar_names}" || -z "${recorded_md5}" ]]; then
+    echo "ERROR: ${names_file} is incomplete. Rerun make_covariate_files.r (step 4.c)." >&2
     exit 1
 fi
+
+# Refuse to run if covariate_settings.r changed after step 4.c wrote the
+# names file: the covariate files would no longer match the settings.
+current_md5=$(md5sum "${settings}" | cut -d' ' -f1)
+if [[ "${current_md5}" != "${recorded_md5}" ]]; then
+    echo "ERROR: ${settings} has changed since make_covariate_files.r last ran" \
+         "(that run used $(get_value settings_file))." \
+         "Rerun step 4.c so the covariate files match the settings, then run this again." >&2
+    exit 1
+fi
+
+echo "phenotype : ${pheno_name}"
+echo "covariates: ${covar_names}"
 
 for i in $(seq 1 22); do
 
@@ -3188,7 +3291,7 @@ for i in $(seq 1 22); do
 
     "${plink2}" --bfile "${plink_files}" \
         --glm hide-covar cols=+a1freq omit-ref \
-        --pheno "${covar}" --pheno-name DISEASE \
+        --pheno "${covar}" --pheno-name "${pheno_name}" \
         --covar "${covar}" --covar-name "${covar_names}" \
         --covar-variance-standardize \
         --threads "${threads}" \
@@ -3198,6 +3301,7 @@ for i in $(seq 1 22); do
 done
 
 echo "All chromosomes done."
+
 ```
 
 </details>
@@ -3210,16 +3314,22 @@ In the terminal do
 ```console
 (base) [duarte@node1 gwas]$ nano plinkGWAS.sh
 (base) [duarte@node1 gwas]$ bash plinkGWAS.sh
+phenotype : DISEASE
+covariates: SEX,AGE,PC1,PC2,PC3,PC4,PC5,PC6,PC7,PC8,PC9,PC10
 =================== chr1 ===================
-(base) [duarte@node1 gwas]$ # if it doesn't run, try to make sure it is an executable
-(base) [duarte@node1 gwas]$ chmod +x plinkGWAS.sh #and then try again to bash it
+(base) [duarte@node1 gwas]$ # bash plinkGWAS.sh works whether or not the file is executable;
+(base) [duarte@node1 gwas]$ # to run it as ./plinkGWAS.sh instead, make it executable first
+(base) [duarte@node1 gwas]$ chmod +x plinkGWAS.sh
+(base) [duarte@node1 gwas]$ ./plinkGWAS.sh
 ```
+
+It prints the same two lines as the python version, and stops the same way if `covariate_settings.r` changed after Step 4.c.
 
 </details>
 
 Either way you end up with one association file per chromosome inside `./out`. The `.glm.logistic.hybrid` extension tells you that PLINK2 used its Firth-fallback logistic regression, which is the sensible default for a case-control trait.
 
-Note: something to consider here is that we are using plink1 files to run the regressions. Hence, we are working with hardcalls rather than dosages, that in the context of GWAS is not ideal. However, since association testing is not the main goal of this project (and we will not put spotlight on the GWAS results, we just need to generate the sumtats in the same conditions as the reference panel), we move forward with this caveat. 
+Note: something to consider here is that we are using plink1 files to run the regressions. Hence, we are working with hardcalls rather than dosages, that in the context of GWAS is not ideal. However, since association testing is not the main goal of this project (and we will not put spotlight on the GWAS results, we just need to generate the sumstats in the same conditions as the reference panel), we move forward with this caveat. 
 
 <details>
 <summary>terminal example: what the GWAS output looks like</summary>
@@ -3245,8 +3355,21 @@ plinkGWAS_chr12.result.log
 
 </details>
 
-Take a moment to confirm that `OBS_CT` is close to the number of unrelated samples reported by `make_covariate_files.r` in Step 4.c. If it is much smaller, something went wrong with the ID matching between the covariate file and the `.fam` of the reference panel.
+Take a moment to confirm that `OBS_CT` is close to the number of unrelated samples reported by `make_covariate_files.r` in Step 4.c (the `Total sample size` line of its log). Step 4.c stops on any missing covariate, so the only expected loss is samples with a missing genotype call at that variant. If it is much smaller, something went wrong with the ID matching between the covariate file and the `.fam` of the reference panel.
 
+One cause to rule out: Step 4.c writes the IID in the FID column as well, so the `.fam` must also have FID equal to IID. If the `.fam` carries real family IDs, plink2 matches no sample at all and stops with `Error: No entries in ... correspond to loaded sample IDs`. The `awk` line below prints any `.fam` row where the two differ, so no output means the IDs line up:
+
+<details>
+<summary>terminal example: comparing OBS_CT with Step 4.c and checking the FID/IID pairs</summary>
+
+```console
+(base) [duarte@node1 gwas]$ grep "Total sample size" ../pca_and_such/outFolder_pca_andSuch/covariate_file_no_related_pairs.log
+Total sample size       : 6412
+(base) [duarte@node1 gwas]$ awk '$1 != $2' ../reference_panel/chr22/chr22.plink1.extracted_cmUpdated.fam | head
+(base) [duarte@node1 gwas]$
+```
+
+</details>
 ### Step 6.a parse the summary statistics with GWASLab
 
 The 22 association files now have to become a single set of summary statistics in the format that LDSC reads. We use [GWASLab](https://cloufield.github.io/gwaslab/) for this, because it harmonises the alleles, rebuilds the variant IDs, sorts by coordinate and exports straight to the LDSC format in one pass, while also giving us the Manhattan and QQ plots we want to inspect anyway.
