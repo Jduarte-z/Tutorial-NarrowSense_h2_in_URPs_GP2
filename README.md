@@ -2122,7 +2122,7 @@ Then, we need to modify this script and specify which covariates are needed and 
 Use the column names exactly as they appear in `pcair_r2_covariates_merged.tsv`. This lists them, one per line:
 
 ```
-(base) [duarte@node1 outFolder_pca_andSuch]$ head -1 pcair_r2_covariates_merged.tsv | tr '\t' '\n'
+(base) [duarte@node1 outFolder_pca_andSuch]$ head -3 pcair_r2_covariates_merged.tsv 
 ```
 
 <details>
