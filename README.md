@@ -4464,7 +4464,7 @@ This step goes back to the `genesis` conda environment we created in Step 4, sin
 
 </details>
 
-The script reuses several things we already computed, so nothing here is recalculated from scratch:
+The script reuses several things we already computed:
 
 | input | where it comes from |
 |---|---|
@@ -4472,16 +4472,23 @@ The script reuses several things we already computed, so nothing here is recalcu
 | `mypcair_r2_results_rds` | Step 4.a, the second round of PC-AiR |
 | `unrelated_IIDs.txt` | Step 4.c, the samples that survived NAToRA |
 | `pcair_r2_covariates_merged.tsv` | Step 4.a, the merged covariate table |
+| `covariate_settings.r` and `covariate_checks.r` | Step 4.c, the shared covariate settings and checks |
 
-**A word on covariates before you run it.** PC-Relate itself takes no covariates at all: it takes PCs and genotypes and returns kinship coefficients. So if your cohort carries extra covariates beyond `SEX`, `AGE` and the PCs, **the GRM does not change and you do not need to touch that part of the script**. Covariates enter later: the one place where extra covariates do matter is the block at the config station of the script, where you need to specify which covariates are categorical vs quantitative and if you wish to include additional covariates. This script writes `pd.ldak.covar`, an all-numeric covariate file with categorical variables expressed as 0/1 dummies. **This file is required later**: arms 4 to 7 run PCGC through the LDAK program, and will also use the pheno file that `make_covariate_files.r` wrote in Step 4.c. 
+**A word on covariates before you run it.** PC-Relate itself takes no covariates at all: it takes PCs and genotypes and returns kinship coefficients. So if your cohort carries extra covariates beyond `SEX`, `AGE` and the PCs, **the GRM does not change and you do not need to touch this script**. Most covariate files were generated in Step 4.c from the shared configuration script `covariate_settings.r`. This script creates one more: `pd.ldak.covar`, the single all-numeric covariate file that the LDAK software needs to run PCGC in arms 4 to 7, with categorical covariates turned into 0/1 dummy columns. To stay consistent across arms, it reads the same `covariate_settings.r` and runs the same checks (`covariate_checks.r`) as Step 4.c, on the same unrelated samples (`unrelated_IIDs.txt`).
+
+The covariate file is built at the very start of the script, before PC-Relate, so a problem in the covariates (a missing value, a `SEX` coded 0, a level without cases) stops the run in seconds rather than after hours. Sample order is not a concern: the rows follow `unrelated_IIDs.txt`, and LDAK matches samples on their FID/IID, not on their position in the file. Because the file has no header, the script also writes `pd.ldak.covar.key.tsv`, which says what each column is and which level is the reference for each categorical covariate.
+
+If you edit `covariate_settings.r` later, rerun Step 4.c **and** this script. The GWAS scripts refuse to run on stale settings, but nothing checks `pd.ldak.covar`. The rerun is short: PC-Relate and the GRM are loaded from the cache (see below), so only the covariate file is rebuilt and the GRM re-exported.
 
 A point of vocabulary that trips people up here: **section 4 rules out the LDAK heritability *model*, not the LDAK *software***. What we excluded from the benchmark is the LDAK-Thin model with `α = −0.25`, because its SNP weights are baked into its own GRM construction and so cannot be benchmarked side by side with an ancestry-aware GRM. We still use the LDAK program itself, since it carries the PCGC implementation we need, run on our own GRMs under the standard `α = −1` model.
 
-Unlike the PCA pipeline in Step 4, this script has no command-line interface. Open the config block at the top and edit it before running, in particular `n_cores`.
+Unlike the PCA pipeline in Step 4, this script has no command-line interface. Open the config block at the top and edit it before running, in particular `n_cores`. The covariates are not set there: they come from `covariate_settings.r`.
 
-For 7.1K samples and ~8M variants, the total computational time took me around ~4 hours at 12 threads and 94G of memory. 
+For 7.1K samples and ~8M variants, the total computational time took me around 4 hours at 12 threads and 94G of memory. 
 
-A NOTE HERE: make sure that the sample.block.size parameter is smaller than the number of samples in your cohort (see script below). Depending on how much memory you have available, you can reduce it in very small blocks to reduce peak memory but increase run time. If you have available more memory, you can increase the size of the blocks
+A NOTE HERE on `sample_block_size`: it exists to memory. If it is smaller than the number of samples, PC-Relate splits the samples into blocks and reads the genotypes once per pair of blocks: less memory, more run time. If it is equal to or larger than the number of samples, everything runs in one block. One consequence matters: the small-sample correction (`small.samp.correct = TRUE` in the script) can only be applied in the one-block case (aka, the sample_block_size is equal or higher than the total number of samples). With more than one block, GENESIS turns it off. With the default of for example 5,000 and a cohort of 7.1K, the run uses two blocks, so the correction is not applied. So, in order to stay consistent across cohorts, please make sure taht sample_block_size is smaller than the total number of samples (turning small.sam.correct = FALSE will also work)
+
+Another note, on rerunning: the script caches its two slow results, `pcrel_h2_variant.rds` (PC-Relate) and `grm_pcrelate_variant.rds` (the GRM), and on a rerun it loads them instead of recomputing. The cache only looks at the file name, which reflects nothing but `pcrel_scale`. So if you change `n_pcs`, `maf_min` or `sample_block_size`, set `force_pcrel <- TRUE` for that run, or the old result is silently reused. For a sensitivity run (for example `maf_min <- 0.05`), point `h2_out_dir` to a new folder instead, so it gets its own cache and does not overwrite the main GRM.
 
 <details>
 <summary><strong>View script: <code>grm_with_pcrelate.r</code></strong></summary>
@@ -4508,37 +4515,26 @@ h2_input_fmt <- "bfile"
 pcair_r2_rds <- file.path(pca_out_dir, "mypcair_r2_results_rds")
 unrel_file   <- file.path(pca_out_dir, "unrelated_IIDs.txt")   # one IID per line
 covar_file   <- file.path(pca_out_dir, "pcair_r2_covariates_merged.tsv")
-force_pcrel  <- FALSE                     # TRUE to recompute even if the .rds exists
+force_pcrel  <- FALSE                     # TRUE to recompute even if the .rds exists; needed after changing n_pcs, maf_min or sample_block_size
 
-n_pcs        <- 10
-n_cores      <- 12                        # set this to what your machine actually has
+n_pcs        <- 10                        # PCs given to PC-Relate; the PCs used as covariates are n_pcs_covar in covariate_settings.r
+n_cores      <- 12                       # set this to what your machine actually has
 maf_min      <- 0.01                      # matches the cov-LDSC LD scores
 pcrel_scale  <- "variant"                 # 'overall' for sensitivity
-sample_block_size <- 5000                 # important here that this is smaller than the your sample size
+sample_block_size <- 5000                 # make sure it is lower than your total number of samples
 snp_block_size   <- 10000                 #here we can reduce it to like 5,000 or 2,000 in order to reduce the peak ram usage
 
-# covariates for the LDAK covariate file (pd.ldak.covar, arms 4 to 7).
-# Use the column names exactly as they appear in covar_file.
-#
-# sex_col and pheno_col may only hold 1 or 2. Any other value (0, -9, NA)
-# stops the script and lists the samples.
-sex_col       <- "SEX"            # 1 = male, 2 = female; written as sex_d (female = 1, male = 0)
-pheno_col     <- "DISEASE"        # 1 = control, 2 = case; used to count cases and controls per level
-
-# Quantitative covariates, written to the file as they are.
-quant_covars  <- c("AGE")         # e.g. c("AGE", "BMI")
-
-# Categorical covariates, binary or multi-level. Each one becomes one 0/1 column
-# per level, except its most common level, which is the reference.
-cat_covars    <- character(0)     # e.g. c("COHORT") or c("COHORT", "PHASE")
-
-# Per-level check on the categorical covariates: a warning if a level has fewer
-# cases or controls than this, and a stop if it has none.
-min_per_level <- 10
-
-# The first n_pcs PCs (PC1, PC2, ...) in covar_file are always added after
-# these. A missing value in any of these columns stops the script and lists the
-# samples.
+# Covariates for the LDAK covariate file (pd.ldak.covar, arms 4 to 7).
+# Which columns are quantitative or categorical, any additional covariates, the
+# number of PCs used as covariates and the per-level threshold are NOT set
+# here. They live in covariate_settings.r, next to the covariate input, which
+# make_covariate_files.r reads too, so the GCTA and LDAK arms use the same
+# covariates. Edit them there. The checks are in covariate_checks.r, in the
+# same folder.
+covar_settings_file <- file.path(pca_out_dir, "covariate_settings.r")
+covar_checks_file   <- file.path(pca_out_dir, "covariate_checks.r")
+source(covar_settings_file)   # sex_col, pheno_col, quant_covars, cat_covars, n_pcs_covar, min_per_level
+source(covar_checks_file)     # read_covariates(), check_covariates()
 
 op <- function(...) file.path(h2_out_dir, ...)
 
@@ -4607,8 +4603,7 @@ cat("unrelated samples:", length(unrel_ids), " PCs:", ncol(pcs_sub), "\n")
 
 
 # --- LDAK covariate file, REQUIRED for arms 4 to 7 -----------------------
-# Arms 4 to 7 run PCGC through the LDAK program, and LDAK does not read the
-# GCTA-style covariate files that make_covariate_files.r wrote in step 4.c.
+# Arms 4 to 7 run PCGC through the LDAK program
 # It wants a single all-numeric covariate file, with categorical variables
 # expressed as 0/1 dummies, which is what this block builds.
 #
@@ -4616,181 +4611,65 @@ cat("unrelated samples:", length(unrel_ids), " PCs:", ncol(pcs_sub), "\n")
 # rules out the LDAK-Thin model (alpha = -0.25), not the program.
 #
 # This block runs before PC-Relate on purpose, so a problem in the covariates
-# stops the script in seconds rather than after hours of compute. The columns it
-# uses are set in the config section. Rows follow unrel_ids order, not GRM order;
-# LDAK matches samples on FID/IID, so the order does not matter.
+# stops the script in seconds rather than after hours of compute. The
+# covariates come from covariate_settings.r (see the config section). Rows
+# follow unrel_ids order, not GRM order; LDAK matches samples on FID/IID, so
+# the order does not matter.
 
-pc_cols       <- paste0("PC", 1:n_pcs)
-problems_file <- op("covariate_problems.tsv")
-unlink(problems_file)        # remove a report left over from an earlier failed run
-
-# Print the offending rows (the first 50), save all of them to
-# problems_file, and stop.
-stop_with_list <- function(problem, rows) {
-  fwrite(rows, problems_file, sep = "\t")
-  cat("\n--- covariate problem ---\n")
-  print(head(rows, 50))
-  if (nrow(rows) > 50) cat("...", nrow(rows) - 50, "more rows not shown\n")
-  stop(problem, "\nFull list (", nrow(rows), " rows): ", problems_file, call. = FALSE)
-}
+# 1. Read the covariates of the unrelated samples and check them, with the
+#    same checks as make_covariate_files.r (covariate_checks.r). Any problem
+#    stops the script here and lists the samples in covariate_problems.tsv.
+checked <- check_covariates(read_covariates(covar_file), unrel_ids,
+                            covar_file, op("covariate_problems.tsv"))
+cv      <- checked$cv
+pc_cols <- paste0("PC", seq_len(n_pcs_covar))
 
 
-# 1. Read the covariates and line them up with the unrelated samples.
-cv <- fread(covar_file, colClasses = c(IID = "character"))
-
-needed_cols  <- c(sex_col, pheno_col, quant_covars, cat_covars, pc_cols)
-missing_cols <- setdiff(needed_cols, names(cv))
-if (length(missing_cols) > 0)
-  stop("these columns are not in ", covar_file, ": ",
-       paste(missing_cols, collapse = ", "), call. = FALSE)
-
-dup_ids <- unique(cv$IID[duplicated(cv$IID)])
-if (length(dup_ids) > 0)
-  stop_with_list("some IIDs appear more than once in the covariate file",
-                 data.table(IID = dup_ids))
-
-not_in_file <- setdiff(unrel_ids, cv$IID)
-if (length(not_in_file) > 0)
-  stop_with_list("some unrelated samples are not in the covariate file",
-                 data.table(IID = not_in_file))
-
-cv <- cv[match(unrel_ids, IID), c("IID", needed_cols), with = FALSE]
-
-
-# 2. No missing values in any covariate. An empty text field counts as missing.
-is_missing <- function(x) {
-  if (is.character(x)) is.na(x) | trimws(x) == "" else is.na(x)
-}
-
-missing_vals <- rbindlist(lapply(needed_cols, function(v) {
-  ids <- cv$IID[is_missing(cv[[v]])]
-  data.table(IID = ids, column = rep(v, length(ids)))
-}))
-
-if (nrow(missing_vals) > 0) {
-  cat("\nmissing values per column:\n")
-  print(missing_vals[, .(n_missing = .N), by = column])
-  stop_with_list(paste("some samples have missing covariate values.",
-                       "Fill them in, or remove those samples, then rerun."),
-                 missing_vals)
-}
-
-
-# 3. SEX and DISEASE may only be 1 or 2.
-check_coded_1_2 <- function(v, meaning) {
-  bad <- !(cv[[v]] %in% c(1, 2))
-  if (any(bad)) {
-    cat("\nvalues of", v, "found:\n")
-    print(table(cv[[v]]))
-    stop_with_list(paste0(v, " must be coded only as 1 or 2 (", meaning, "). ",
-                          sum(bad), " samples have another value, such as 0 or -9. ",
-                          "Make sure ", v, " is only 1 and 2, then rerun."),
-                   data.table(IID = cv$IID[bad], value = cv[[v]][bad]))
-  }
-}
-check_coded_1_2(sex_col,   "1 = male, 2 = female")
-check_coded_1_2(pheno_col, "1 = control, 2 = case")
-
-is_case <- cv[[pheno_col]] == 2
-cat("cases:", sum(is_case), " controls:", sum(!is_case), "\n")
-
-
-# 4. Quantitative covariates and PCs must be numbers.
-for (v in c(quant_covars, pc_cols)) {
-  if (!is.numeric(cv[[v]])) {
-    example <- cv[[v]][is.na(suppressWarnings(as.numeric(cv[[v]])))][1]
-    stop(v, " is stored as text, not numbers (for example '", example, "'). ",
-         "Quantitative covariates must be numeric.", call. = FALSE)
-  }
-}
-
-if (length(quant_covars) > 0) {
-  cat("\n--- quantitative covariates (check the ranges for codes like -9) ---\n")
-  print(rbindlist(lapply(quant_covars, function(v)
-    data.table(covariate = v, min = min(cv[[v]]),
-               median = median(cv[[v]]), max = max(cv[[v]])))))
-}
-
-
-# 5. Categorical covariates: one 0/1 column per level, except the reference.
-#    The reference is the most common level; a tie goes to the level that
-#    sorts first. Each level is checked for enough cases and controls.
+# 2. Categorical covariates: one 0/1 column per level, except the reference,
+#    which is the most common level (a tie goes to the level that sorts first).
 dummies       <- list()        # the 0/1 columns, in the order they are made
 dummy_meaning <- character(0)  # what each one means, for the column key
-empty_levels  <- list()        # levels with no cases or no controls
 
 for (v in cat_covars) {
-  x <- as.character(cv[[v]])
+  lv_order  <- checked$levels[[v]]$level      # most common level first
+  reference <- lv_order[1]
+  cat(v, ": reference level is ", reference, "\n", sep = "")
 
-  per_level <- data.table(level = x, case = is_case)[
-    , .(n = .N, cases = sum(case), controls = sum(!case)), by = level]
-  setorder(per_level, -n, level)
-  per_level[, role := c("reference", rep("dummy", .N - 1))]
-
-  cat("\n---", v, ":", nrow(per_level), "levels ---\n")
-  print(per_level)
-
-  if (nrow(per_level) < 2)
-    stop(v, " has a single level, so it is constant and cannot be a covariate. ",
-         "Remove it from cat_covars.", call. = FALSE)
-
-  # Small levels: a warning, the run continues.
-  sparse <- per_level[cases > 0 & controls > 0 &
-                      (cases < min_per_level | controls < min_per_level)]
-  if (nrow(sparse) > 0)
-    warning(v, ": ", nrow(sparse), " level(s) with fewer than ", min_per_level,
-            " cases or controls: ", paste(sparse$level, collapse = ", "),
-            ". Their estimates will be unstable; consider merging them with another level.",
-            call. = FALSE, immediate. = TRUE)
-
-  # Levels with no cases or no controls: collected here, and the script
-  # stops once every categorical covariate has been printed.
-  empty <- per_level[cases == 0 | controls == 0]
-  if (nrow(empty) > 0)
-    empty_levels[[v]] <- cbind(covariate = v, empty)
-
-  # One 0/1 column for every level except the reference.
-  reference <- per_level$level[1]
-  for (lv in per_level$level[-1]) {
+  for (lv in lv_order[-1]) {
     col <- paste0(tolower(v), "_", gsub("[^A-Za-z0-9]+", "_", lv))
     if (col %in% names(dummies))
       stop("two levels of ", v, " give the same column name, ", col,
            ". Rename one of them in ", covar_file, ".", call. = FALSE)
-    dummies[[col]] <- as.integer(x == lv)
+    dummies[[col]] <- as.integer(cv[[v]] == lv)
     dummy_meaning  <- c(dummy_meaning,
                         paste0("1 if ", v, " = ", lv, ", else 0 (reference: ", reference, ")"))
   }
 }
 
-if (length(empty_levels) > 0)
-  stop_with_list(paste("some levels have no cases or no controls, so their 0/1 column",
-                       "would perfectly predict disease status. Merge or drop those levels,",
-                       "then rerun."),
-                 rbindlist(empty_levels))
 
-
-# 6. Assemble and write the file, plus a key to its columns (it has no header).
-ldak_cv <- data.table(FID   = cv$IID,                                 # the IID twice, as in the .grm.id
+# 3. Assemble and write the file, plus a key to its columns (it has no header).
+#    Quantitative values and PCs are written exactly as they are in covar_file.
+ldak_cv <- data.frame(FID   = cv$IID,                             # the IID twice, as in the .grm.id
                       IID   = cv$IID,
-                      sex_d = as.integer(cv[[sex_col]] == 2))         # female = 1, male = 0
-ldak_cv <- cbind(ldak_cv, cv[, quant_covars, with = FALSE])
-if (length(dummies) > 0) ldak_cv <- cbind(ldak_cv, as.data.table(dummies))
-ldak_cv <- cbind(ldak_cv, cv[, pc_cols, with = FALSE])
+                      sex_d = as.integer(cv[[sex_col]] == "2"))   # female = 1, male = 0
+for (v in quant_covars)   ldak_cv[[v]] <- cv[[v]]
+for (d in names(dummies)) ldak_cv[[d]] <- dummies[[d]]
+for (p in pc_cols)        ldak_cv[[p]] <- cv[[p]]
 
-key <- data.table(column  = seq_len(ncol(ldak_cv)),
+key <- data.frame(column  = seq_len(ncol(ldak_cv)),
                   name    = names(ldak_cv),
                   meaning = c("FID (the IID, as in the .grm.id)", "IID",
                               paste0("1 = female, 0 = male (from ", sex_col, ")"),
                               rep("quantitative, as is", length(quant_covars)),
                               dummy_meaning,
-                              rep("PC-AiR round 2", n_pcs)))
+                              rep("PC-AiR round 2", n_pcs_covar)))
 
 fwrite(ldak_cv, op("pd.ldak.covar"),         sep = "\t", col.names = FALSE)
 fwrite(key,     op("pd.ldak.covar.key.tsv"), sep = "\t")
 
 cat("\nLDAK covariate file written:", op("pd.ldak.covar"),
     "|", nrow(ldak_cv), "samples, no header. Its columns:\n")
-print(key)
+print(key, row.names = FALSE)
 
 
 # --- convert to GDS -----------------------------------------------------
@@ -4831,8 +4710,8 @@ if (!force_pcrel && file.exists(pcrel_rds)) {
     training.set       = unrel_ids,     # all included samples are mutually unrelated
     maf.thresh         = maf_min,       # on individual-specific AF, not cohort MAF
     maf.bound.method   = "filter",
-    sample.block.size  = sample_block_size,          #important here that this is smaller than the your sample size
-    small.samp.correct = TRUE,
+    sample.block.size  = sample_block_size,          # see the note on sample_block_size in the config
+    small.samp.correct = TRUE,          # applied only with one block (sample.block.size >= samples); otherwise GENESIS turns it off and warns
     BPPARAM            = BiocParallel::MulticoreParam(n_cores),
     verbose            = TRUE
   )
@@ -4930,8 +4809,9 @@ for (start in seq(1, n, by = 500)) {
 }
 system2("gzip", c("-f", txt))
 
-# The .grm.id must be in the same row order as the matrix, and carry the
-# FID/IID pair from the fam file.
+# The .grm.id must be in the same row order as the matrix. It carries the IID
+# twice, the same FID convention as the step 4.c covariate and phenotype files:
+# GCTA matches on the FID/IID pair, so all of them must agree.
 fam <- fread(paste0(h2_input, ".fam"), header = FALSE,
              col.names = c("FID","IID","PAT","MAT","SEX","PHENO"))
 k <- match(rownames(grm), fam$IID)
@@ -4947,6 +4827,7 @@ cat("GRM written to:", paste0(grm_stem, ".grm.gz"), "\n")
 # --- close the log ------------------------------------------------------
 cat("finished:", format(Sys.time()), "\n")
 log_close()
+
 ```
 
 </details> 
@@ -4963,7 +4844,7 @@ Here an example on how to run it interactively in the terminal
 
 </details>
 
-Given the runtime, on a cluster you will almost certainly want to submit this rather than watch it in a terminal that could drop the connection. Unlike the earlier steps there is nothing to parallelise here, since PC-Relate needs the whole genome at once, so this is a single job rather than a python script writing 22 of them.
+Given the runtime, on a cluster you will almost certainly want to submit this rather than watch it in a terminal that could drop the connection. Unlike the earlier steps there is nothing to split into per-chromosome jobs here, since PC-Relate needs the whole genome at once; the parallelism happens inside the job, across the `n_cores` workers. So this is a single job rather than a python script writing 22 of them.
 
 <details>
 <summary>script: <code>get_grm_pcrel.pbs</code> — SLURM job for the PC-Relate GRM</summary>
@@ -5010,18 +4891,26 @@ Two things to keep in sync when you edit the resources. First, **`--cpus-per-tas
 
 Note that the job submits from `base`, not from an activated `genesis`: the environment is activated inside the job script, on the compute node where it actually matters.
 
-The script prints a set of diagnostics as it goes, and they are worth reading rather than scrolling past. They are important to share with the team. 
+The script prints a set of diagnostics as it goes, and they are worth reading rather than scrolling past. They are important to share with the team. Everything it prints also lands in the log file in `outFolder_h2`, so nothing is lost if the terminal scrolls away. 
 
 | check | what it means | what to do if it fails |
 |---|---|---|
-| **diagonal spread** | Each diagonal element is an individual's self-similarity and should sit near 1. Values far outside `[0.8, 1.5]` mean the individual-specific allele frequencies are unstable for that person, usually because their ancestry is poorly captured by the ten PCs | Report the count. If it is more than a handful of people, more PCs may be needed |
+| **diagonal spread** | Each diagonal element is an individual's self-similarity and should sit near 1. Values far outside `[0.8, 1.5]` mean the individual-specific allele frequencies are unstable for that person, usually because their ancestry is poorly captured by the PCs given to PC-Relate | Report the count. If it is more than a handful of people, more PCs may be needed: raise `n_pcs` in this script's config (not `n_pcs_covar`, which only sets the covariates) and rerun with `force_pcrel <- TRUE` |
 | **off-diagonal max** | The most similar pair in the matrix. Above roughly 0.1 means a related pair survived NAToRA | Go back and check that pair before proceeding, do not just carry on |
-| **SNPs per pair vs ancestry** | The correlation between how many SNPs a pair contributed and how ancestrally distinct that pair is. Strongly negative means the ISAF filter is systematically discarding data from the most admixed individuals | Report it, and consider rerunning with `maf.thresh = 0.05` as a sensitivity analysis |
+| **SNPs per pair vs ancestry** | The correlation between how many SNPs a pair contributed and how ancestrally distinct that pair is. Strongly negative means the ISAF filter is systematically discarding data from the most admixed individuals | Report it, and consider rerunning with `maf_min <- 0.05` (passed to PC-Relate as `maf.thresh`) as a sensitivity analysis, in a new `h2_out_dir` |
 | **PSD check** | Whether the matrix is positive definite. REML assumes it is | If it fails with `lambda_min` well under 1, proceed anyway: GCTA's `--reml-bendV` handles it, and PCGC never inverts the matrix at all (aka, doesn't really care) |
 
 Please send us these diagnostics along with the estimates. Comparing them across cohorts is informative, since the behaviour of ancestry-aware GRMs in admixed PD cohorts is essentially uncharacterised.
 
-The GRM itself comes out in GCTA's gzipped text format, as `outFolder_h2/grm_pcrelate_variant.grm.gz` plus its `.grm.id`. That is what arm 3 feeds to GCTA in the following steps. 
+The GRM itself comes out in GCTA's gzipped text format, as `outFolder_h2/grm_pcrelate_variant.grm.gz` plus its `.grm.id`. That is what arm 3 feeds to GCTA in the following steps. The other files the script leaves in `outFolder_h2`:
+
+| file | what it is |
+|---|---|
+| `pd.ldak.covar` | the covariates for the PCGC arms (4 to 7), no header |
+| `pd.ldak.covar.key.tsv` | what each column of `pd.ldak.covar` is, and the reference level of each categorical covariate |
+| `grm_with_pcrel_<date>-<time>.log` | everything the script printed, including the diagnostics above |
+| `h2_common.gds`, `pcrel_h2_variant.rds`, `grm_pcrelate_variant.rds` | caches, reused on reruns (see the note on rerunning) |
+| `covariate_problems.tsv` | only after a failed covariate check: the samples to fix | 
 
 ## Step 11. run GREML on the PC-Relate GRM
 
