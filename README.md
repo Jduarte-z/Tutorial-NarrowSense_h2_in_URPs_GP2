@@ -208,53 +208,13 @@ genetic_data
 Notice the (base) only means that my default conda environment is activated, we will get to create a couple ones for the analysis that are needed to run. But more on that when we get to those sections. 
 
 
-## Step 1. Get your imputed data 
-
-For our analysis we will need to access **imputed** and **only genotyped data**. The example here is working with .vcf files that were returned from TOPMed Imputation Server, that we used for imputing the data from [LARGE-PD](https://large-pd.org/), used in the papers from [LARGE-PD phase 1](https://pubmed.ncbi.nlm.nih.gov/34227697/) and [LARGE-PD phase 2](https://pubmed.ncbi.nlm.nih.gov/40791673/).
-
-For the purposes of this project and in order to maximize the sample size for heritability estimation, we merge both phases and were imputed together with [TOPMed](https://imputation.biodatacatalyst.nhlbi.nih.gov/#!).
-
-Here we are going to create a symlink [like a type of shortcut in Linux](https://www.reddit.com/r/linux/comments/1a3xxq/someone_please_explain_symlinks_to_me_i_know/?rdt=51432) to where the actual imputed data sits, you can implement a similar approach to ensure that the downstream path architecture holds. 
-
-<details>
-<summary>terminal example: creating the symlink to the imputed data and checking that it resolves</summary>
-
-```console
-(base) [duarte@node1 working_directory_h2]$ pwd
-/home/duarte/working_directory_h2
-(base) [duarte@node1 working_directory_h2]$ ls
-genetic_data
-(base) [duarte@node1 genetic_data]$ # here is where we store our imputed data:
-(base) [duarte@node1 genetic_data]$ ls /home/duarte/backups/ridiculously_large_path/imputed_data 
-(base) [duarte@node1 genetic_data]$ ln -s /home/duarte/backups/ridiculously_large_path/imputed_data ./imputed
-(base) [duarte@node1 genetic_data]$ # you will only have to change the actual path for your imputed data, keep the ./ imputed folder name as it is (this is important) 
-(base) [duarte@node1 genetic_data]$ # then, you will see the symlink and try to ls it
-(base) [duarte@node1 genetic_data]$ ls 
-imputed
-(base) [duarte@node1 genetic_data]$ ls imputed/
-22test.imiss           chr11.dose.vcf.gz      chr_12.zip.md5         chr_14.zip             chr16.info.gz          chr18.dose.vcf.gz.csi  chr1.dose.vcf.gz       chr_20.zip.md5         chr_22.zip            chr3.info.gz          chr5.dose.vcf.gz.csi  chr7.dose.vcf.gz      chr_8.zip.md5            index_vcf.sh
-22test.lmiss           chr11.dose.vcf.gz.csi  chr13.dose.vcf.gz      chr_14.zip.md5         chr_16.zip             chr18.info.gz          chr1.dose.vcf.gz.csi   chr21.dose.vcf.gz      chr_22.zip.md5        chr_3.zip             chr5.info.gz          chr7.dose.vcf.gz.csi  chr9.dose.vcf.gz         logs
-22test.log             chr11.info.gz          chr13.dose.vcf.gz.csi  chr15.dose.vcf.gz      chr_16.zip.md5         chr_18.zip             chr1.info.gz           chr21.dose.vcf.gz.csi  chr2.dose.vcf.gz      chr_3.zip.md5         chr_5.zip             chr7.info.gz          chr9.dose.vcf.gz.csi     qc_report.txt
-22test.nosex           chr_11.zip             chr13.info.gz          chr15.dose.vcf.gz.csi  chr17.dose.vcf.gz      chr_18.zip.md5         chr_1.zip              chr21.info.gz          chr2.dose.vcf.gz.csi  chr4.dose.vcf.gz      chr_5.zip.md5         chr_7.zip             chr9.info.gz             quality-control.html
-chr10.dose.vcf.gz      chr_11.zip.md5         chr_13.zip             chr15.info.gz          chr17.dose.vcf.gz.csi  chr19.dose.vcf.gz      chr_1.zip.md5          chr_21.zip             chr2.info.gz          chr4.dose.vcf.gz.csi  chr6.dose.vcf.gz      chr_7.zip.md5         chr_9.zip                statistics
-chr10.dose.vcf.gz.csi  chr12.dose.vcf.gz      chr_13.zip.md5         chr_15.zip             chr17.info.gz          chr19.dose.vcf.gz.csi  chr20.dose.vcf.gz      chr_21.zip.md5         chr_2.zip             chr4.info.gz          chr6.dose.vcf.gz.csi  chr8.dose.vcf.gz      chr_9.zip.md5            unzip.err
-chr10.info.gz          chr12.dose.vcf.gz.csi  chr14.dose.vcf.gz      chr_15.zip.md5         chr_17.zip             chr19.info.gz          chr20.dose.vcf.gz.csi  chr22.dose.vcf.gz      chr_2.zip.md5         chr_4.zip             chr6.info.gz          chr8.dose.vcf.gz.csi  getTopmed_noAFcheck.err  unzip.out
-chr_10.zip             chr12.info.gz          chr14.dose.vcf.gz.csi  chr16.dose.vcf.gz      chr_17.zip.md5         chr_19.zip             chr20.info.gz          chr22.dose.vcf.gz.csi  chr3.dose.vcf.gz      chr_4.zip.md5         chr_6.zip             chr8.info.gz          getTopmed_noAFcheck.out  unzip.sh
-chr_10.zip.md5         chr_12.zip             chr14.info.gz          chr16.dose.vcf.gz.csi  chr18.dose.vcf.gz      chr_19.zip.md5         chr_20.zip             chr22.info.gz          chr3.dose.vcf.gz.csi  chr5.dose.vcf.gz      chr_6.zip.md5         chr_8.zip             getTopmed_noAFcheck.sh
-```
-
-</details>
-
-Here we have confirmed that we have the shortcut active for further analysis.
-
-
-## Step 2. Get your only genotyped data
+## Step 1. Get your only genotyped data
 
 Only genotyped data is important for the computation of principal components. 
 
 For this step we are assuming that your genotype array data has been already called and QCed. The basic parameters expected and more relevant information about how to perform QC in admixed populations with your whole cohort together is described bellow. Since heritability estimations are more stable at bigger sample sizes, having the genetic data of your cohort altogether will be ideal. If your genotyped data was QCed with other frameworks that split individuals by ancestry (like [genotools](https://github.com/dvitale199/GenoTools) and imputed by ancestry, we can discuss and brainstorm how to proceed. 
 
-### Step 2.a (example on array data QC, imputation prep and imputation with TOPMed)
+### Step 1.a (example on array data QC, imputation prep and imputation with TOPMed)
 
 <details>
 <summary><b>Genotype QC and Pre-Imputation Preparation (NeuroBooster Array → TOPMed)</b></summary>
@@ -745,7 +705,7 @@ For this project we recommend the following settings:
 </details>
 
 
-### Step 2.b - after imputation work
+### Step 1.b - after imputation work
 
 After you send your files to TOPMed and they finish the imputation job, they will send you an email with the curl link to download them to your terminal and the password to unzip them. Here an example on how to proceed (after the download with the curl command is finished):
 
@@ -759,6 +719,46 @@ done
 
 bcftools index chr*.dose.vcf.gz
 ```
+
+## Step 2. Get your imputed data 
+
+For our analysis we will need to access **imputed** and **only genotyped data**. The example here is working with .vcf files that were returned from TOPMed Imputation Server, that we used for imputing the data from [LARGE-PD](https://large-pd.org/), used in the papers from [LARGE-PD phase 1](https://pubmed.ncbi.nlm.nih.gov/34227697/) and [LARGE-PD phase 2](https://pubmed.ncbi.nlm.nih.gov/40791673/).
+
+For the purposes of this project and in order to maximize the sample size for heritability estimation, we merge both phases and were imputed together with [TOPMed](https://imputation.biodatacatalyst.nhlbi.nih.gov/#!).
+
+Here we are going to create a symlink [like a type of shortcut in Linux](https://www.reddit.com/r/linux/comments/1a3xxq/someone_please_explain_symlinks_to_me_i_know/?rdt=51432) to where the actual imputed data sits, you can implement a similar approach to ensure that the downstream path architecture holds. 
+
+<details>
+<summary>terminal example: creating the symlink to the imputed data and checking that it resolves</summary>
+
+```console
+(base) [duarte@node1 working_directory_h2]$ pwd
+/home/duarte/working_directory_h2
+(base) [duarte@node1 working_directory_h2]$ ls
+genetic_data
+(base) [duarte@node1 genetic_data]$ # here is where we store our imputed data:
+(base) [duarte@node1 genetic_data]$ ls /home/duarte/backups/ridiculously_large_path/imputed_data 
+(base) [duarte@node1 genetic_data]$ ln -s /home/duarte/backups/ridiculously_large_path/imputed_data ./imputed
+(base) [duarte@node1 genetic_data]$ # you will only have to change the actual path for your imputed data, keep the ./ imputed folder name as it is (this is important) 
+(base) [duarte@node1 genetic_data]$ # then, you will see the symlink and try to ls it
+(base) [duarte@node1 genetic_data]$ ls 
+imputed
+(base) [duarte@node1 genetic_data]$ ls imputed/
+22test.imiss           chr11.dose.vcf.gz      chr_12.zip.md5         chr_14.zip             chr16.info.gz          chr18.dose.vcf.gz.csi  chr1.dose.vcf.gz       chr_20.zip.md5         chr_22.zip            chr3.info.gz          chr5.dose.vcf.gz.csi  chr7.dose.vcf.gz      chr_8.zip.md5            index_vcf.sh
+22test.lmiss           chr11.dose.vcf.gz.csi  chr13.dose.vcf.gz      chr_14.zip.md5         chr_16.zip             chr18.info.gz          chr1.dose.vcf.gz.csi   chr21.dose.vcf.gz      chr_22.zip.md5        chr_3.zip             chr5.info.gz          chr7.dose.vcf.gz.csi  chr9.dose.vcf.gz         logs
+22test.log             chr11.info.gz          chr13.dose.vcf.gz.csi  chr15.dose.vcf.gz      chr_16.zip.md5         chr_18.zip             chr1.info.gz           chr21.dose.vcf.gz.csi  chr2.dose.vcf.gz      chr_3.zip.md5         chr_5.zip             chr7.info.gz          chr9.dose.vcf.gz.csi     qc_report.txt
+22test.nosex           chr_11.zip             chr13.info.gz          chr15.dose.vcf.gz.csi  chr17.dose.vcf.gz      chr_18.zip.md5         chr_1.zip              chr21.info.gz          chr2.dose.vcf.gz.csi  chr4.dose.vcf.gz      chr_5.zip.md5         chr_7.zip             chr9.info.gz             quality-control.html
+chr10.dose.vcf.gz      chr_11.zip.md5         chr_13.zip             chr15.info.gz          chr17.dose.vcf.gz.csi  chr19.dose.vcf.gz      chr_1.zip.md5          chr_21.zip             chr2.info.gz          chr4.dose.vcf.gz.csi  chr6.dose.vcf.gz      chr_7.zip.md5         chr_9.zip                statistics
+chr10.dose.vcf.gz.csi  chr12.dose.vcf.gz      chr_13.zip.md5         chr_15.zip             chr17.info.gz          chr19.dose.vcf.gz.csi  chr20.dose.vcf.gz      chr_21.zip.md5         chr_2.zip             chr4.info.gz          chr6.dose.vcf.gz.csi  chr8.dose.vcf.gz      chr_9.zip.md5            unzip.err
+chr10.info.gz          chr12.dose.vcf.gz.csi  chr14.dose.vcf.gz      chr_15.zip.md5         chr_17.zip             chr19.info.gz          chr20.dose.vcf.gz.csi  chr22.dose.vcf.gz      chr_2.zip.md5         chr_4.zip             chr6.info.gz          chr8.dose.vcf.gz.csi  getTopmed_noAFcheck.err  unzip.out
+chr_10.zip             chr12.info.gz          chr14.dose.vcf.gz.csi  chr16.dose.vcf.gz      chr_17.zip.md5         chr_19.zip             chr20.info.gz          chr22.dose.vcf.gz.csi  chr3.dose.vcf.gz      chr_4.zip.md5         chr_6.zip             chr8.info.gz          getTopmed_noAFcheck.out  unzip.sh
+chr_10.zip.md5         chr_12.zip             chr14.info.gz          chr16.dose.vcf.gz.csi  chr18.dose.vcf.gz      chr_19.zip.md5         chr_20.zip             chr22.info.gz          chr3.dose.vcf.gz.csi  chr5.dose.vcf.gz      chr_6.zip.md5         chr_8.zip             getTopmed_noAFcheck.sh
+```
+
+</details>
+
+Here we have confirmed that we have the shortcut active for further analysis.
+
 Your genotype data could be in plink or vcf format, here I'm giving an example on how extract the "only typed" variants form the imputed data (in this case from topmed), but if you already have the genotyped data in a different set of files it is also fine, just create the symlink in the "genotype" folder to the genetic data like we did with the imputed. 
 
 A clarification note: here is important to extract the genotyped variants that come from TOPMed since they do further internal QC to remove problematic genotyped variants that our previous QC didn't catch. 
