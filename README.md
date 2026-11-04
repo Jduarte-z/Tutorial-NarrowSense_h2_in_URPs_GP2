@@ -212,7 +212,7 @@ Notice the (base) only means that my default conda environment is activated, we 
 
 Only genotyped data is important for the computation of principal components. 
 
-For this step we are assuming that your genotype array data has been already called and QCed. The basic parameters expected and more relevant information about how to perform QC in admixed populations with your whole cohort together is described bellow. Since heritability estimations are more stable at bigger sample sizes, having the genetic data of your cohort altogether will be ideal. If your genotyped data was QCed with other frameworks that split individuals by ancestry (like [genotools](https://github.com/dvitale199/GenoTools) and imputed by ancestry, we can discuss and brainstorm how to proceed. 
+For this step we are assuming that your genotype array data has been already called and QCed. The basic parameters expected and more relevant information about how to perform QC in admixed populations with your whole cohort together is described bellow. Since heritability estimations are more stable at bigger sample sizes, having the genetic data of your cohort altogether will be ideal. If your genotyped data was QCed with other frameworks that split individuals by ancestry (like [genotools](https://github.com/dvitale199/GenoTools)) and imputed by ancestry, we can discuss and brainstorm how to proceed. 
 
 ### Step 1.a (example on array data QC, imputation prep and imputation with TOPMed)
 
