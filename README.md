@@ -736,8 +736,9 @@ Here we are going to create a symlink ([like a type of shortcut in Linux](https:
 /home/duarte/working_directory_h2
 (base) [duarte@node1 working_directory_h2]$ ls
 genetic_data
-(base) [duarte@node1 genetic_data]$ # here is where we store our imputed data:
-(base) [duarte@node1 genetic_data]$ ls /home/duarte/backups/ridiculously_large_path/imputed_data 
+(base) [duarte@node1 working_directory_h2]$ cd genetic_data/
+(base) [duarte@node1 genetic_data]$ # here is where we currently store our imputed data: /home/duarte/backups/ridiculously_large_path/imputed_data
+(base) [duarte@node1 genetic_data]$ # and now we do the command to create the symlink
 (base) [duarte@node1 genetic_data]$ ln -s /home/duarte/backups/ridiculously_large_path/imputed_data ./imputed
 (base) [duarte@node1 genetic_data]$ # you will only have to change the actual path for your imputed data, keep the ./ imputed folder name as it is (this is important) 
 (base) [duarte@node1 genetic_data]$ # then, you will see the symlink and try to ls it
@@ -753,11 +754,10 @@ chr10.dose.vcf.gz.csi  chr12.dose.vcf.gz      chr_13.zip.md5         chr_15.zip 
 chr10.info.gz          chr12.dose.vcf.gz.csi  chr14.dose.vcf.gz      chr_15.zip.md5         chr_17.zip             chr19.info.gz          chr20.dose.vcf.gz.csi  chr22.dose.vcf.gz      chr_2.zip.md5         chr_4.zip             chr6.info.gz          chr8.dose.vcf.gz.csi  getTopmed_noAFcheck.err  unzip.out
 chr_10.zip             chr12.info.gz          chr14.dose.vcf.gz.csi  chr16.dose.vcf.gz      chr_17.zip.md5         chr_19.zip             chr20.info.gz          chr22.dose.vcf.gz.csi  chr3.dose.vcf.gz      chr_4.zip.md5         chr_6.zip             chr8.info.gz          getTopmed_noAFcheck.out  unzip.sh
 chr_10.zip.md5         chr_12.zip             chr14.info.gz          chr16.dose.vcf.gz.csi  chr18.dose.vcf.gz      chr_19.zip.md5         chr_20.zip             chr22.info.gz          chr3.dose.vcf.gz.csi  chr5.dose.vcf.gz      chr_6.zip.md5         chr_8.zip             getTopmed_noAFcheck.sh
+(base) [duarte@node1 genetic_data]$ #Here we have confirmed that we have the shortcut active for further analysis.
 ```
 
 </details>
-
-Here we have confirmed that we have the shortcut active for further analysis.
 
 Regarding the "only genotyped data" we are going to extract it from the imputed data that comes from top med. 
 
