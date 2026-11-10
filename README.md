@@ -759,7 +759,7 @@ chr_10.zip.md5         chr_12.zip             chr14.info.gz          chr16.dose.
 
 Here we have confirmed that we have the shortcut active for further analysis.
 
-Your genotype data could be in plink or vcf format, here I'm giving an example on how extract the "only typed" variants form the imputed data (in this case from topmed). 
+Regarding the "only genotyped data" we are going to extract it from the imputed data that comes from top med. 
 
 A clarification note: here is important to extract the genotyped variants that come from TOPMed since they do further internal QC to remove problematic genotyped variants that our previous QC didn't catch. 
 
